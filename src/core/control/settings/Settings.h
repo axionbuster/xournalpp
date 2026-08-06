@@ -221,6 +221,26 @@ public:
     int getMainWndHeight() const;
     bool isMainWndMaximized() const;
 
+    /**
+     * Position of the main window relative to the origin of the monitor it was on, together with
+     * that monitor's description.
+     *
+     * The monitor is what is really being remembered here, and it is remembered by description
+     * rather than by index because indices are reassigned when displays are plugged in or
+     * rearranged. The position is only honoured again when a monitor matching that description is
+     * actually connected; otherwise placement is left to GTK. See MainWindow::restoreWindowPosition.
+     */
+    void setMainWndPos(int x, int y, const std::string& monitor);
+
+    /**
+     * Stable, human-readable description of a monitor -- manufacturer and model where the backend
+     * exposes them, falling back to geometry. Used as the identity that survives a reconnect.
+     */
+    static std::string describeMonitor(GdkMonitor* monitor);
+    int getMainWndPosX() const;
+    int getMainWndPosY() const;
+    const std::string& getMainWndMonitor() const;
+
     bool isFullscreen() const;
 
     bool isSidebarVisible() const;
@@ -834,6 +854,21 @@ private:
      * Height of the main window
      */
     int mainWndHeight{};
+
+    /**
+     * Position of the main window RELATIVE TO THE ORIGIN OF mainWndMonitor, not in root
+     * coordinates. The monitor is the anchor: root coordinates only keep their meaning while the
+     * display arrangement is unchanged, so a window remembered at x=1440 lands on the built-in
+     * display as soon as the external one is plugged in on the other side.
+     */
+    int mainWndPosX{};
+    int mainWndPosY{};
+
+    /**
+     * Description of the monitor the main window was last on, as built by
+     * Settings::describeMonitor. Empty when unknown.
+     */
+    std::string mainWndMonitor{};
 
     /**
      * Show the scrollbar on the left side

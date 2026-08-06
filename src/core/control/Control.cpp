@@ -283,6 +283,8 @@ void Control::saveSettings() {
     }
     this->settings->setMainWndMaximized(this->win->isMaximized());
 
+    this->win->saveWindowPosition();
+
     this->sidebar->saveSize();
 }
 
@@ -304,7 +306,15 @@ void Control::initWindow(MainWindow* win) {
     this->searchBar = new SearchBar(this);
 
     if (settings->isPresentationMode()) {
-        setViewPresentationMode(true);
+        // Deferred, unlike the layout calls below. setViewPresentationMode hides the
+        // toolbars/menubar and fullscreens the window, which needs the window to exist on screen
+        // first. Deferring also puts it AFTER MainWindow's own deferred restoreWindowPosition, so
+        // the window is moved onto its monitor before anything fullscreens it -- the other order
+        // fullscreens onto whichever display it happened to open on.
+        //
+        // Note this branch only became reachable once loading presentationMode from settings.xml
+        // was made to update activeViewMode too; see Settings::parseItem.
+        Util::execInUiThread([this]() { setViewPresentationMode(true); });
     } else if (settings->isViewFixedRows()) {
         setViewRows(settings->getViewRows());
     } else {

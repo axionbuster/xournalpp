@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 
+#include <algorithm>  // for clamp, max
 #include <regex>
+#include <string>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for gdk_pixbuf_new_fr...
 #include <gdk/gdk.h>                // for gdk_screen_get_de...
@@ -134,6 +136,11 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     Util::execInUiThread([=]() {
         // Execute after the window is visible, else the check won't work
         control->setShowMenubar(control->getSettings()->isMenubarVisible());
+
+        // Queued before Control::initWindow defers presentation mode, so the window is moved onto
+        // its monitor BEFORE anything fullscreens it. The other order fullscreens it onto whatever
+        // display it happened to open on, and the move afterwards is then a no-op.
+        this->restoreWindowPosition();
     });
 
     // Drag and Drop
@@ -615,6 +622,97 @@ void MainWindow::setToolbarVisible(bool visible) {
 
 void MainWindow::setMenubarVisible(bool visible) {
     gtk_application_window_set_show_menubar(GTK_APPLICATION_WINDOW(this->getWindow()), visible);
+}
+
+/**
+ * The monitor a window is "on" is the one showing its top-left corner. Xournal++ is a single large
+ * window, so there is no interesting ambiguity here: gdk_display_get_monitor_at_window would pick
+ * the monitor with the largest overlap, which differs only while the window straddles a boundary,
+ * and a straddling window has no good answer anyway.
+ */
+void MainWindow::saveWindowPosition() {
+    GtkWindow* win = GTK_WINDOW(this->window);
+    if (win == nullptr || !gtk_widget_get_realized(GTK_WIDGET(win))) {
+        return;
+    }
+
+    // Deliberately not saved while fullscreen or in presentation mode: both report the geometry of
+    // the whole screen rather than of the window the user arranged, so saving then would overwrite
+    // a good remembered position with (0, 0). The monitor, however, is exactly what we want to keep
+    // in that case -- a board closed in presentation mode on the external display must come back on
+    // the external display.
+    GdkWindow* gdkWindow = gtk_widget_get_window(GTK_WIDGET(win));
+    if (gdkWindow == nullptr) {
+        return;
+    }
+
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(win));
+    GdkMonitor* monitor = gdk_display_get_monitor_at_window(display, gdkWindow);
+    if (monitor == nullptr) {
+        return;
+    }
+
+    GdkRectangle monitorGeometry{};
+    gdk_monitor_get_geometry(monitor, &monitorGeometry);
+
+    gint x = 0;
+    gint y = 0;
+    gtk_window_get_position(win, &x, &y);
+
+    Settings* settings = control->getSettings();
+    const std::string description = Settings::describeMonitor(monitor);
+
+    if (this->isMaximized() || settings->isPresentationMode() || settings->isFullscreen()) {
+        // Keep the monitor, keep the previously remembered offset on it.
+        settings->setMainWndPos(settings->getMainWndPosX(), settings->getMainWndPosY(), description);
+        return;
+    }
+
+    settings->setMainWndPos(x - monitorGeometry.x, y - monitorGeometry.y, description);
+}
+
+void MainWindow::restoreWindowPosition() {
+    Settings* settings = control->getSettings();
+    const std::string& wanted = settings->getMainWndMonitor();
+    if (wanted.empty()) {
+        return;
+    }
+
+    GtkWindow* win = GTK_WINDOW(this->window);
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(win));
+
+    GdkMonitor* match = nullptr;
+    const int nMonitors = gdk_display_get_n_monitors(display);
+    for (int i = 0; i < nMonitors; i++) {
+        GdkMonitor* candidate = gdk_display_get_monitor(display, i);
+        if (Settings::describeMonitor(candidate) == wanted) {
+            match = candidate;
+            break;
+        }
+    }
+
+    if (match == nullptr) {
+        // The remembered display is not plugged in. Placing the window at a remembered offset from
+        // a monitor that is not there would put it somewhere arbitrary, so leave it to GTK.
+        g_message("Main window: monitor \"%s\" is not connected, using default placement", wanted.c_str());
+        return;
+    }
+
+    GdkRectangle geometry{};
+    gdk_monitor_get_workarea(match, &geometry);
+
+    gint width = 0;
+    gint height = 0;
+    gtk_window_get_size(win, &width, &height);
+
+    // Clamp onto the monitor. A window remembered from a larger display must still land fully on
+    // this one, or it comes back partly offscreen and cannot be dragged back by its title bar.
+    const int maxX = geometry.x + std::max(0, geometry.width - width);
+    const int maxY = geometry.y + std::max(0, geometry.height - height);
+    const int x = std::clamp(geometry.x + settings->getMainWndPosX(), geometry.x, maxX);
+    const int y = std::clamp(geometry.y + settings->getMainWndPosY(), geometry.y, maxY);
+
+    gtk_window_move(win, x, y);
 }
 
 void MainWindow::setMaximized(bool maximized) { this->maximized = maximized; }

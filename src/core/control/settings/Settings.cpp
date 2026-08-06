@@ -90,6 +90,9 @@ void Settings::loadDefault() {
 
     this->mainWndWidth = 800;
     this->mainWndHeight = 600;
+    this->mainWndPosX = 0;
+    this->mainWndPosY = 0;
+    this->mainWndMonitor = "";  // empty: no monitor remembered yet, let GTK place the window
 
     this->fullscreenActive = false;
 
@@ -439,6 +442,12 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->mainWndWidth = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("mainWndHeight")) == 0) {
         this->mainWndHeight = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("mainWndPosX")) == 0) {
+        this->mainWndPosX = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("mainWndPosY")) == 0) {
+        this->mainWndPosY = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("mainWndMonitor")) == 0) {
+        this->mainWndMonitor = reinterpret_cast<const char*>(value);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("maximized")) == 0) {
         this->maximized = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("showToolbar")) == 0) {
@@ -484,6 +493,14 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->numPairsOffset = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("presentationMode")) == 0) {
         this->presentationMode = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+        if (this->presentationMode) {
+            // isPresentationMode() answers from activeViewMode, NOT from this flag. Loading the
+            // flag without also moving activeViewMode leaves the two disagreeing, and because
+            // activeViewMode is still VIEW_MODE_DEFAULT the startup check in Control::initWindow
+            // cannot fire -- which is why presentationMode="true" survived a restart in
+            // settings.xml but the app always came up with the mode off.
+            this->activeViewMode = PresetViewModeIds::VIEW_MODE_PRESENTATION;
+        }
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("autoloadMostRecent")) == 0) {
         this->autoloadMostRecent = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("autoloadPdfXoj")) == 0) {
@@ -1031,6 +1048,9 @@ void Settings::save() {
     SAVE_INT_PROP(displayDpi);
     SAVE_INT_PROP(mainWndWidth);
     SAVE_INT_PROP(mainWndHeight);
+    SAVE_INT_PROP(mainWndPosX);
+    SAVE_INT_PROP(mainWndPosY);
+    SAVE_STRING_PROP(mainWndMonitor);
     SAVE_BOOL_PROP(maximized);
 
     SAVE_BOOL_PROP(showToolbar);
@@ -2080,6 +2100,57 @@ void Settings::setMainWndSize(int width, int height) {
 auto Settings::getMainWndWidth() const -> int { return this->mainWndWidth; }
 
 auto Settings::getMainWndHeight() const -> int { return this->mainWndHeight; }
+
+/**
+ * Identify a monitor by what it IS rather than by where it currently sits. Manufacturer and model
+ * come from EDID and survive unplugging, changing the arrangement, and reordering; the monitor
+ * index does not. Geometry is only a fallback for backends that expose no EDID at all -- it is a
+ * weaker identity, but two monitors of identical size are still a far better guess than an index.
+ */
+auto Settings::describeMonitor(GdkMonitor* monitor) -> std::string {
+    if (monitor == nullptr) {
+        return "";
+    }
+
+    const char* manufacturer = gdk_monitor_get_manufacturer(monitor);
+    const char* model = gdk_monitor_get_model(monitor);
+
+    std::string description;
+    if (manufacturer != nullptr && *manufacturer != '\0') {
+        description += manufacturer;
+    }
+    if (model != nullptr && *model != '\0') {
+        if (!description.empty()) {
+            description += " ";
+        }
+        description += model;
+    }
+
+    if (description.empty()) {
+        GdkRectangle geometry{};
+        gdk_monitor_get_geometry(monitor, &geometry);
+        description = "monitor-" + std::to_string(geometry.width) + "x" + std::to_string(geometry.height);
+    }
+
+    return description;
+}
+
+void Settings::setMainWndPos(int x, int y, const std::string& monitor) {
+    if (this->mainWndPosX == x && this->mainWndPosY == y && this->mainWndMonitor == monitor) {
+        return;
+    }
+    this->mainWndPosX = x;
+    this->mainWndPosY = y;
+    this->mainWndMonitor = monitor;
+
+    save();
+}
+
+auto Settings::getMainWndPosX() const -> int { return this->mainWndPosX; }
+
+auto Settings::getMainWndPosY() const -> int { return this->mainWndPosY; }
+
+auto Settings::getMainWndMonitor() const -> const std::string& { return this->mainWndMonitor; }
 
 auto Settings::isMainWndMaximized() const -> bool { return this->maximized; }
 
