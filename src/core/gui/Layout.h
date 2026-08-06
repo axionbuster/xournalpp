@@ -66,6 +66,24 @@ public:
      */
     void ensureRectIsVisible(int x, int y, int width, int height);
 
+    /**
+     * Scrolls so the given Rectangle is visible with its top edge always at the same place in the
+     * viewport, whatever the view was showing beforehand.
+     *
+     * ensureRectIsVisible() scrolls the smallest distance that works, which makes the result depend
+     * on the direction of travel: gtk_adjustment_clamp_page() aligns the rectangle's bottom when it
+     * lies below the viewport and its top when it lies above. For a rectangle taller than the
+     * viewport both rules fire and the top wins, so paging through a document normally looks
+     * stable. But once a page is shorter than the viewport - a fullscreen window, a zoomed out view
+     * - the very same page settles (viewport height - rect height - 15) pixels apart depending on
+     * whether it was reached from an earlier or a later page.
+     *
+     * Page navigation should land in the same place no matter the route taken, so it uses this.
+     * Dragging a selection past the edge of the window still wants minimal scrolling, and keeps
+     * using ensureRectIsVisible().
+     */
+    void scrollRectToTop(int x, int y, int width);
+
     /// Returns the height of the entire Layout - including centering padding
     int getTotalPixelHeight() const;
 

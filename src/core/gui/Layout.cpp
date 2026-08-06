@@ -446,6 +446,20 @@ void Layout::ensureRectIsVisible(int x, int y, int width, int height) {
     this->blockHorizontalCallback = false;
 }
 
+void Layout::scrollRectToTop(int x, int y, int width) {
+    // Not routed through scrollAbs(): that one is a no-op in presentation mode, where changing
+    // pages is the only way the view is meant to move - which is precisely this code path.
+    this->blockHorizontalCallback = true;
+    // Horizontally, minimal scrolling is still the right rule: it leaves the view where it is while
+    // paging through a document wider than the window, instead of yanking it to the left edge.
+    gtk_adjustment_clamp_page(scrollHandling->getHorizontal(), x - 5, x + width + 10);
+    // The same 5px of breathing room ensureRectIsVisible() leaves, so pages that are taller than
+    // the viewport - the common case - land exactly where they always have. set_value() clamps
+    // itself to [lower, upper - page_size], so the first and last pages need no special handling.
+    gtk_adjustment_set_value(scrollHandling->getVertical(), y - 5);
+    this->blockHorizontalCallback = false;
+}
+
 auto Layout::getGridPositionAtUnsafe(const xoj::util::Point<double>& p) const -> GridPosition {
     // We do a binary search to find the grid position
     double zoom = this->view->getZoom();

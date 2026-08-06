@@ -443,18 +443,13 @@ void XournalView::scrollTo(size_t pageNo, XojPdfRectangle rect) {
 
     int x = p.x + round_cast<int>(rect.x1 * zoom);
     int y = p.y + round_cast<int>(rect.y1 * zoom);
-    int width;
-    int height;
-    if (rect.x2 == -1 || rect.y2 == -1) {
-        auto& v = this->viewPages[pageNo];
-        width = v->getDisplayWidth();
-        height = v->getDisplayHeight();
-    } else {
-        width = round_cast<int>((rect.x2 - rect.x1) * zoom);
-        height = round_cast<int>((rect.y2 - rect.y1) * zoom);
-    }
+    const int width = (rect.x2 == -1 || rect.y2 == -1) ? this->viewPages[pageNo]->getDisplayWidth() :
+                                                         round_cast<int>((rect.x2 - rect.x1) * zoom);
 
-    layout->ensureRectIsVisible(x, y, width, height);
+    // Anchor the target at the top of the viewport instead of just bringing it into view, so that
+    // reaching a page from a later one leaves the canvas exactly where reaching it from an earlier
+    // one does. See Layout::scrollRectToTop. The rectangle's height plays no part in that.
+    layout->scrollRectToTop(x, y, width);
 
     // Select the page
     control->firePageSelected(pageNo);
