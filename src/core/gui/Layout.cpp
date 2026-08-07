@@ -36,6 +36,11 @@ constexpr auto const XOURNAL_ROOM_FOR_SHADOW = 3;
  */
 constexpr auto const XOURNAL_PADDING_BETWEEN = 15;
 
+/**
+ * Breathing room left above a page that navigation has scrolled to
+ */
+constexpr auto const XOURNAL_SCROLL_TARGET_MARGIN = 5;
+
 
 Layout::Layout(XournalView* view, ScrollHandling* scrollHandling): view(view), scrollHandling(scrollHandling) {
     g_signal_connect(scrollHandling->getHorizontal(), "value-changed", G_CALLBACK(horizontalScrollChanged), this);
@@ -65,9 +70,14 @@ void Layout::maybeAddLastPage(Layout* layout) {
     auto* control = this->view->getControl();
     auto* settings = control->getSettings();
     if (settings->getEmptyLastPageAppend() == EmptyLastPageAppendType::OnScrollToEndOfLastPage) {
+        // The scrolling room reserved after the last page is not content: the end of the last page is
+        // where the layout's content stops, whether or not anything can be scrolled past it.
+        const double contentHeight = [this] {
+            std::lock_guard g{pc.m};
+            return getTotalPixelHeightUnsafe() - pc.bottomScrollReserve;
+        }();
         // If the layout is 5px away from the end of the last page
-        if (std::abs((layout->getTotalPixelHeight() - layout->getVisibleRect().y) - layout->getVisibleRect().height) <
-            5) {
+        if (std::abs((contentHeight - layout->getVisibleRect().y) - layout->getVisibleRect().height) < 5) {
             auto* doc = control->getDocument();
             doc->lock_shared();
             auto pdfPageCount = doc->getPdfPageCount();
@@ -368,9 +378,28 @@ void Layout::recomputeCenteringPaddingUnsafe(int allocWidth, int allocHeight) {
     if (int h = getMinimalPixelHeightUnsafe(); h < allocHeight) {
         // We have more space than needed: add padding to center the content
         pc.verticalCenteringPadding = (allocHeight - h) / 2;
+        // The whole layout is on screen, so nothing scrolls and every page is already reached the
+        // same way whatever the route
+        pc.bottomScrollReserve = 0;
     } else {
         pc.verticalCenteringPadding = 0;
+        pc.bottomScrollReserve = computeBottomScrollReserveUnsafe(allocHeight);
     }
+}
+
+auto Layout::computeBottomScrollReserveUnsafe(int allocHeight) const -> int {
+    const auto& afterRow = pc.stretchableVerticalPixelsAfterRow;
+    if (afterRow.size() < 2) {
+        // A single row has no other page to agree with
+        return 0;
+    }
+    const double zoom = view->getZoom();
+    // Measured the way the layout itself measures, so the reserve comes out exact:
+    // getMinimalPixelHeightUnsafe() rounds the layout's height up, getPixelCoords() rounds each
+    // row's top down.
+    const int lastRowHeight =
+            ceil_cast<int>(afterRow.back() * zoom) - floor_cast<int>(afterRow[afterRow.size() - 2] * zoom);
+    return std::max(0, allocHeight - XOURNAL_SCROLL_TARGET_MARGIN - pc.paddingBottom - lastRowHeight);
 }
 
 void Layout::recomputeCenteringPadding(int allocWidth, int allocHeight) {
@@ -455,8 +484,9 @@ void Layout::scrollRectToTop(int x, int y, int width) {
     gtk_adjustment_clamp_page(scrollHandling->getHorizontal(), x - 5, x + width + 10);
     // The same 5px of breathing room ensureRectIsVisible() leaves, so pages that are taller than
     // the viewport - the common case - land exactly where they always have. set_value() clamps
-    // itself to [lower, upper - page_size], so the first and last pages need no special handling.
-    gtk_adjustment_set_value(scrollHandling->getVertical(), y - 5);
+    // itself to [lower, upper - page_size]; the layout keeps enough room past its last row for
+    // that clamp not to bite (see Layout::computeBottomScrollReserveUnsafe).
+    gtk_adjustment_set_value(scrollHandling->getVertical(), y - XOURNAL_SCROLL_TARGET_MARGIN);
     this->blockHorizontalCallback = false;
 }
 
@@ -498,7 +528,7 @@ auto Layout::getTotalPixelHeight() const -> int {
 }
 
 auto Layout::getTotalPixelHeightUnsafe() const -> int {
-    return getMinimalPixelHeightUnsafe() + 2 * pc.verticalCenteringPadding;
+    return getMinimalPixelHeightUnsafe() + 2 * pc.verticalCenteringPadding + pc.bottomScrollReserve;
 }
 
 auto Layout::getMinimalPixelHeight() const -> int {
