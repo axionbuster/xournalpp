@@ -41,6 +41,8 @@
 class LoadHandler;
 class GeometryToolController;
 class AudioController;
+class ScreenRecorder;
+class ProjectorWindow;
 class FullscreenHandler;
 class Sidebar;
 class GladeSearchpath;
@@ -318,6 +320,35 @@ public:
     Sidebar* getSidebar() const;
     SearchBar* getSearchBar() const;
     AudioController* getAudioController() const;
+    ScreenRecorder* getScreenRecorder() const;
+
+    /**
+     * The projector window, created lazily the first time it is asked for. Never null.
+     *
+     * Callers on hot paths (RepaintHandler) want peekProjectorWindow instead, which returns null
+     * rather than bringing one into existence.
+     */
+    ProjectorWindow* getProjectorWindow();
+
+    /// The projector window if one has been created, otherwise null. Cheap; never allocates.
+    ProjectorWindow* peekProjectorWindow() const;
+
+    /// Show or hide the projector. Has no effect on any recording in progress, in either direction.
+    void setProjectorVisible(bool visible);
+
+    /**
+     * Start a recording: the sound file that strokes are timestamped against, the screen capture,
+     * or both, depending on the preferences.
+     *
+     * @param error filled with a user-facing reason when this returns false.
+     */
+    bool startRecording(std::string* error);
+
+    /// Stop whatever startRecording started. Returns true unless the recording could not be ended.
+    bool stopRecording();
+
+    bool isRecording() const;
+
     PageTypeHandler* getPageTypes() const;
     PageBackgroundChangeController* getPageBackgroundChangeController() const;
     LayerController* getLayerController() const;
@@ -571,4 +602,17 @@ private:
 
     // Keep after the ActionDatabase so it is destroyed first: ~AudioController refers to the ActionDatabase
     std::unique_ptr<AudioController> audioController;
+
+    /**
+     * Screen capture. Always present, even in a build without audio support: it runs an external
+     * ffmpeg process and shares nothing with the PortAudio pipeline.
+     */
+    std::unique_ptr<ScreenRecorder> screenRecorder;
+
+    /**
+     * Created the first time the projector is opened and then kept, so that closing and reopening
+     * it is instant and the remembered geometry is never lost mid-session. Destroyed before the
+     * ActionDatabase, whose state it updates when the window is closed from its title bar.
+     */
+    std::unique_ptr<ProjectorWindow> projectorWindow;
 };

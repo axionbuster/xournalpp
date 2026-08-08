@@ -1121,6 +1121,12 @@ auto XojPageView::paintPage(cairo_t* cr, GdkRectangle* rect) -> bool {
     return true;
 }
 
+void XojPageView::drawOverlays(cairo_t* cr) const {
+    for (const auto& v: this->overlayViews) {
+        v->draw(cr);
+    }
+}
+
 /**
  * GETTER / SETTER
  */

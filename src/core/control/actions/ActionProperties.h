@@ -832,30 +832,21 @@ struct ActionProperties<Action::AUDIO_RECORD> {
     using state_type = bool;
     static constexpr state_type initialState(Control*) { return false; }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
-#ifdef ENABLE_AUDIO
-        if (!ctrl->audioController) {
-            g_warning("Audio has been disabled");
-            return;
-        }
+        // Control coordinates the whole recording -- the sound file the strokes are linked to and
+        // the screen capture, in whichever combination the preferences ask for -- so that this one
+        // toggle keeps meaning "record", whatever a recording currently consists of.
         bool enabled = g_variant_get_boolean(p);
-        bool success = false;
-        if (enabled) {
-            success = ctrl->getAudioController()->startRecording();
-        } else {
-            success = ctrl->getAudioController()->stopRecording();
-        }
+        std::string error;
+        bool success = enabled ? ctrl->startRecording(&error) : ctrl->stopRecording();
 
         if (success) {
             g_simple_action_set_state(ga, p);
         } else {
             g_simple_action_set_state(ga, g_variant_new_boolean(!enabled));
-            Util::execInUiThread([win = ctrl->getGtkWindow()]() {
-                XojMsgBox::showErrorToUser(win, _("Recorder could not be started."));
+            Util::execInUiThread([win = ctrl->getGtkWindow(), error]() {
+                XojMsgBox::showErrorToUser(win, error.empty() ? _("Recorder could not be started.") : error);
             });
         }
-#else
-        g_warning("Audio has been disabled at compile time");
-#endif
     }
 };
 template <>
@@ -1135,5 +1126,15 @@ struct ActionProperties<Action::POSITION_HIGHLIGHTING> {
         g_simple_action_set_state(ga, p);
         bool enable = g_variant_get_boolean(p);
         ctrl->getSettings()->setHighlightPosition(enable);
+    }
+};
+
+template <>
+struct ActionProperties<Action::PROJECTOR_WINDOW> {
+    using state_type = bool;
+    static constexpr state_type initialState(Control*) { return false; }
+    static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        g_simple_action_set_state(ga, p);
+        ctrl->setProjectorVisible(g_variant_get_boolean(p));
     }
 };

@@ -16,6 +16,7 @@
 #include "control/CompassController.h"                           // for Comp...
 #include "control/NavigationHistory.h"                           // for Navi...
 #include "control/RecentManager.h"                               // for Rece...
+#include "control/ScreenRecorder.h"                              // for Scre...
 #include "control/ScrollHandler.h"                               // for Scro...
 #include "control/SetsquareController.h"                         // for Sets...
 #include "control/Tool.h"                                        // for Tool
@@ -43,6 +44,7 @@
 #include "gui/MainWindow.h"                                      // for Main...
 #include "gui/PageView.h"                                        // for XojP...
 #include "gui/PdfFloatingToolbox.h"                              // for PdfF...
+#include "gui/ProjectorWindow.h"                                 // for Proj...
 #include "gui/SearchBar.h"                                       // for Sear...
 #include "gui/XournalView.h"                                     // for Xour...
 #include "gui/XournalppCursor.h"                                 // for Xour...
@@ -143,6 +145,19 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
         this->audioController = std::make_unique<AudioController>(this->settings, this);
     }
 #endif
+
+    this->screenRecorder = std::make_unique<ScreenRecorder>(*this->settings);
+    this->screenRecorder->setUnexpectedExitCallback([this](const std::string& message) {
+        // ffmpeg gave up on its own. Bring the sound recording down with it so the two halves of a
+        // recording cannot drift apart, put the toolbar toggle back up, and say why.
+#ifdef ENABLE_AUDIO
+        if (this->audioController) {
+            this->audioController->stopRecording();
+        }
+#endif
+        this->actionDB->setActionState(Action::AUDIO_RECORD, false);
+        XojMsgBox::showErrorToUser(getGtkWindow(), message);
+    });
 
     this->scrollHandler = new ScrollHandler(this);
 
@@ -332,6 +347,16 @@ void Control::initWindow(MainWindow* win) {
     this->clipboardHandler = new ClipboardHandler(this, win->getXournal()->getWidget());
 
     this->enableAutosave(settings->isAutosaveEnabled());
+
+    if (settings->isProjectorOpenAtStartup()) {
+        // Deferred for the same reason the presentation-mode restore is: the projector places
+        // itself relative to a monitor, which needs the main window to be on screen first so that
+        // GDK can answer which monitors there are.
+        Util::execInUiThread([this]() {
+            this->actionDB->setActionState(Action::PROJECTOR_WINDOW, true);
+            setProjectorVisible(true);
+        });
+    }
 }
 
 auto Control::autosaveCallback(Control* control) -> bool {
@@ -2191,11 +2216,14 @@ void Control::quit(bool allowCancel) {
                 emergencySave();
             }
         } else {
-#ifdef ENABLE_AUDIO
-            if (audioController) {
-                audioController->stopRecording();
+            // Both halves, and before anything else: the screen capture has to be told to finish
+            // and flush, or the video file is left without its index and will not play.
+            stopRecording();
+
+            if (this->projectorWindow) {
+                this->projectorWindow->saveGeometry();
             }
-#endif
+
             this->scheduler->lock();
             this->scheduler->removeAllJobs();
             this->scheduler->unlock();
@@ -2681,6 +2709,117 @@ auto Control::getSidebar() const -> Sidebar* { return this->sidebar; }
 auto Control::getSearchBar() const -> SearchBar* { return this->searchBar; }
 
 auto Control::getAudioController() const -> AudioController* { return this->audioController.get(); }
+
+auto Control::getScreenRecorder() const -> ScreenRecorder* { return this->screenRecorder.get(); }
+
+auto Control::peekProjectorWindow() const -> ProjectorWindow* { return this->projectorWindow.get(); }
+
+auto Control::getProjectorWindow() -> ProjectorWindow* {
+    if (!this->projectorWindow) {
+        this->projectorWindow = std::make_unique<ProjectorWindow>(this);
+    }
+    return this->projectorWindow.get();
+}
+
+void Control::setProjectorVisible(bool visible) {
+    if (!visible && !this->projectorWindow) {
+        return;  // nothing to hide, and no reason to build a window in order to hide it
+    }
+
+    ProjectorWindow* projector = getProjectorWindow();
+    if (visible) {
+        projector->show();
+    } else {
+        projector->hide();
+    }
+}
+
+/*
+ * Recording
+ * ---------------------------------------------------------------------------------------------
+ * A recording is up to two things at once: the sound file that strokes carry timestamps into, and
+ * a screen capture written by ffmpeg. Which of them a press of the record button means is a
+ * preference, so it is decided here rather than in the action, and either part failing fails the
+ * whole thing -- a recording that is quietly missing half of what was asked for is worse than one
+ * that did not start.
+ */
+
+auto Control::startRecording(std::string* error) -> bool {
+    if (isRecording()) {
+        return false;
+    }
+
+    const bool wantVideo = this->settings->isScreenRecordingEnabled();
+    // Without the video there is nothing else a recording could be, so the sound file is always
+    // written in that case, whatever the "keep the audio file" preference says.
+    const bool wantAudio = !wantVideo || this->settings->isScreenRecordingKeepAudioFile();
+
+    bool audioStarted = false;
+#ifdef ENABLE_AUDIO
+    if (wantAudio && this->audioController) {
+        audioStarted = this->audioController->startRecording();
+        if (!audioStarted) {
+            // AudioController has already told the user if the folder was the problem.
+            if (error != nullptr) {
+                *error = _("The audio recorder could not be started.");
+            }
+            return false;
+        }
+    }
+#else
+    if (wantAudio && !wantVideo) {
+        if (error != nullptr) {
+            *error = _("Audio support was disabled when this copy of Xournal++ was built.");
+        }
+        return false;
+    }
+#endif
+
+    if (wantVideo) {
+        std::string videoError;
+        const fs::path output = this->screenRecorder->buildOutputPath(&videoError);
+        const bool videoStarted = !output.empty() && this->screenRecorder->start(output, &videoError);
+
+        if (!videoStarted) {
+#ifdef ENABLE_AUDIO
+            if (audioStarted) {
+                this->audioController->stopRecording();
+            }
+#endif
+            if (error != nullptr) {
+                *error = videoError;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    return audioStarted;
+}
+
+auto Control::stopRecording() -> bool {
+    if (this->screenRecorder->isRecording()) {
+        this->screenRecorder->stop();
+    }
+#ifdef ENABLE_AUDIO
+    if (this->audioController) {
+        this->audioController->stopRecording();
+    }
+#endif
+    return true;
+}
+
+auto Control::isRecording() const -> bool {
+    if (this->screenRecorder && this->screenRecorder->isRecording()) {
+        return true;
+    }
+#ifdef ENABLE_AUDIO
+    if (this->audioController) {
+        return this->audioController->isRecording();
+    }
+#endif
+    return false;
+}
 
 auto Control::getPageTypes() const -> PageTypeHandler* { return this->pageTypes; }
 

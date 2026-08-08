@@ -63,7 +63,7 @@ ToolbarCustomizeDialog::ToolbarCustomizeDialog(GladeSearchpath* gladeSearchPath,
 
     using Cat = AbstractToolItem::Category;
     EnumIndexedArray<std::string, Cat> labels;
-    labels[Cat::AUDIO] = C_("Item category in toolbar customization dialog", "Audio");
+    labels[Cat::AUDIO] = C_("Item category in toolbar customization dialog", "Audio & video");
     labels[Cat::COLORS] = C_("Item category in toolbar customization dialog", "Colors");
     labels[Cat::FILES] = C_("Item category in toolbar customization dialog", "Files");
     labels[Cat::MISC] = C_("Item category in toolbar customization dialog", "Miscellaneous");

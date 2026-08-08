@@ -176,6 +176,18 @@ public:  // event handler
      */
     bool paintPage(cairo_t* cr, GdkRectangle* rect);
 
+    /**
+     * Draw only the overlays -- the stroke currently under the pen, the selection, the laser
+     * pointer, the geometry tools -- onto a context already set up in page coordinates.
+     *
+     * paintPage() does this after blitting its render buffer. The projector needs the overlays
+     * without the buffer, because it renders the page itself at its own resolution; none of that
+     * content lives in the document model, so there is no other way to reach it.
+     *
+     * Must be called on the UI thread, like the rest of the overlay handling.
+     */
+    void drawOverlays(cairo_t* cr) const;
+
     void deleteLaserPointerHandler();
 
     void setGridCoordinates(xoj::util::Point<int> pos);

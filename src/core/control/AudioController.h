@@ -36,7 +36,7 @@ public:
 
     bool startRecording();
     bool stopRecording();
-    bool isRecording();
+    bool isRecording() const;
 
     bool isPlaying();
     bool startPlayback(fs::path const& file, unsigned int timestamp);

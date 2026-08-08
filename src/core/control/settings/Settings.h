@@ -443,10 +443,14 @@ public:
     PageTemplateSettings const& getPageTemplateSettings() const;
     void setPageTemplateSettings(const PageTemplateSettings& pageTemplateSettings);
 
-#ifdef ENABLE_AUDIO
+    /**
+     * Folder holding the sound files strokes are timestamped into. Outside the audio guard because
+     * the screen recorder falls back to it when no separate video folder is set.
+     */
     fs::path const& getAudioFolder() const;
     void setAudioFolder(fs::path audioFolder);
 
+#ifdef ENABLE_AUDIO
     static constexpr PaDeviceIndex AUDIO_INPUT_SYSTEM_DEFAULT = -1;
     PaDeviceIndex getAudioInputDevice() const;
     void setAudioInputDevice(PaDeviceIndex deviceIndex);
@@ -464,6 +468,137 @@ public:
     unsigned int getDefaultSeekTime() const;
     void setDefaultSeekTime(unsigned int t);
 #endif
+
+    // ---------------------------------------------------------------------------------------
+    // Screen recording
+    //
+    // Deliberately outside the ENABLE_AUDIO guard. The screen capture is run by an external
+    // ffmpeg process and shares nothing with the PortAudio pipeline, so a build without audio
+    // support can still record video.
+    // ---------------------------------------------------------------------------------------
+
+    /// Capture the screen alongside the sound when the record button is pressed.
+    bool isScreenRecordingEnabled() const;
+    void setScreenRecordingEnabled(bool enabled);
+
+    /**
+     * Also write the separate sound file that strokes are timestamped against.
+     *
+     * With this off, pressing record produces a video and nothing else -- which is what most
+     * people want from a screen recording. It is on by default because turning it off silently
+     * disables the stroke playback feature: without that file there is no audio for a stroke to
+     * point at.
+     */
+    bool isScreenRecordingKeepAudioFile() const;
+    void setScreenRecordingKeepAudioFile(bool keep);
+
+    /// Where finished videos are written. Empty falls back to the audio folder.
+    fs::path const& getVideoFolder() const;
+    void setVideoFolder(fs::path videoFolder);
+
+    /// Explicit ffmpeg binary; empty means "look on PATH and in the usual package prefixes".
+    std::string const& getScreenRecordingFfmpegPath() const;
+    void setScreenRecordingFfmpegPath(std::string path);
+
+    int getScreenRecordingWidth() const;
+    int getScreenRecordingHeight() const;
+    void setScreenRecordingSize(int width, int height);
+
+    int getScreenRecordingFps() const;
+    void setScreenRecordingFps(int fps);
+
+    /// Video bitrate in kbit/s.
+    int getScreenRecordingVideoBitrate() const;
+    void setScreenRecordingVideoBitrate(int kbits);
+
+    /// Audio bitrate in kbit/s.
+    int getScreenRecordingAudioBitrate() const;
+    void setScreenRecordingAudioBitrate(int kbits);
+
+    int getScreenRecordingAudioSampleRate() const;
+    void setScreenRecordingAudioSampleRate(int sampleRate);
+
+    /// An ffmpeg encoder name, e.g. "h264_videotoolbox" or "libx264".
+    std::string const& getScreenRecordingVideoCodec() const;
+    void setScreenRecordingVideoCodec(std::string codec);
+
+    std::string const& getScreenRecordingAudioCodec() const;
+    void setScreenRecordingAudioCodec(std::string codec);
+
+    /// Container extension without the dot: "mov", "mp4" or "mkv".
+    std::string const& getScreenRecordingContainer() const;
+    void setScreenRecordingContainer(std::string container);
+
+    bool isScreenRecordingCaptureCursor() const;
+    void setScreenRecordingCaptureCursor(bool capture);
+
+    /**
+     * Index of the screen to capture, in the platform grabber's own numbering.
+     *
+     * The default is SCREEN_RECORDING_FIRST_SCREEN rather than 0, because a grabber lists cameras
+     * and screens in one numbering and the cameras come first -- device 0 is usually the webcam.
+     */
+    static constexpr int SCREEN_RECORDING_FIRST_SCREEN = -1;
+    int getScreenRecordingVideoDevice() const;
+    void setScreenRecordingVideoDevice(int index);
+
+    /// Index of the microphone to record, in the grabber's separate audio numbering; -1 for none.
+    static constexpr int SCREEN_RECORDING_NO_AUDIO = -1;
+    int getScreenRecordingAudioDevice() const;
+    void setScreenRecordingAudioDevice(int index);
+
+    /// Audio device by name, for the backends that address devices that way (dshow, pulse).
+    std::string const& getScreenRecordingAudioDeviceName() const;
+    void setScreenRecordingAudioDeviceName(std::string name);
+
+    /**
+     * Region of the captured screen to keep, in captured pixels -- which on a HiDPI panel are not
+     * the same as the logical pixels the window manager reports. A zero width or height means the
+     * whole screen.
+     */
+    int getScreenRecordingRegionX() const;
+    int getScreenRecordingRegionY() const;
+    int getScreenRecordingRegionWidth() const;
+    int getScreenRecordingRegionHeight() const;
+    void setScreenRecordingRegion(int x, int y, int width, int height);
+
+    /// Extra ffmpeg arguments, appended last so they override everything derived from settings.
+    std::string const& getScreenRecordingExtraArguments() const;
+    void setScreenRecordingExtraArguments(std::string arguments);
+
+    // ---------------------------------------------------------------------------------------
+    // Projector window
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Where the projector was when it was last closed: position relative to the origin of
+     * getProjectorMonitor(), plus its size. Remembered by monitor description for the same reason
+     * the main window is -- see setMainWndPos.
+     */
+    void setProjectorGeometry(int x, int y, int width, int height, const std::string& monitor);
+    int getProjectorPosX() const;
+    int getProjectorPosY() const;
+    int getProjectorWidth() const;
+    int getProjectorHeight() const;
+    std::string const& getProjectorMonitor() const;
+
+    bool isProjectorKeepAbove() const;
+    void setProjectorKeepAbove(bool keepAbove);
+
+    /// Open the projector automatically at startup, on the display it was last closed on.
+    bool isProjectorOpenAtStartup() const;
+    void setProjectorOpenAtStartup(bool open);
+
+    /// Constrain the projector's shape to the recording's aspect ratio while it is resized.
+    bool isProjectorLockAspectRatio() const;
+    void setProjectorLockAspectRatio(bool lock);
+
+    /// Draw a translucent band where burnt-in captions would sit.
+    bool isProjectorShowSafeArea() const;
+    void setProjectorShowSafeArea(bool show);
+
+    Color getProjectorBackgroundColor() const;
+    void setProjectorBackgroundColor(Color color);
 
     std::string const& getPluginEnabled() const;
     void setPluginEnabled(const std::string& pluginEnabled);
@@ -1141,6 +1276,48 @@ private:
      */
     unsigned int defaultSeekTime{};
 #endif
+
+    /**
+     * Screen recording. Names match the settings.xml keys one-for-one, and the defaults are the
+     * ones a 1080p60 lecture capture wants: see Settings::loadDefault.
+     */
+    bool screenRecordingEnabled{};
+    bool screenRecordingKeepAudioFile{};
+    fs::path videoFolder;
+    std::string screenRecordingFfmpegPath;
+    int screenRecordingWidth{};
+    int screenRecordingHeight{};
+    int screenRecordingFps{};
+    int screenRecordingVideoBitrate{};
+    int screenRecordingAudioBitrate{};
+    int screenRecordingAudioSampleRate{};
+    std::string screenRecordingVideoCodec;
+    std::string screenRecordingAudioCodec;
+    std::string screenRecordingContainer;
+    bool screenRecordingCaptureCursor{};
+    int screenRecordingVideoDevice{};
+    int screenRecordingAudioDevice{};
+    std::string screenRecordingAudioDeviceName;
+    int screenRecordingRegionX{};
+    int screenRecordingRegionY{};
+    int screenRecordingRegionWidth{};
+    int screenRecordingRegionHeight{};
+    std::string screenRecordingExtraArguments;
+
+    /**
+     * Projector window placement, stored the same way as the main window's: an offset from the
+     * origin of a monitor identified by description, not a root coordinate.
+     */
+    int projectorPosX{};
+    int projectorPosY{};
+    int projectorWidth{};
+    int projectorHeight{};
+    std::string projectorMonitor;
+    bool projectorKeepAbove{};
+    bool projectorOpenAtStartup{};
+    bool projectorLockAspectRatio{};
+    bool projectorShowSafeArea{};
+    Color projectorBackgroundColor{};
 
     /**
      * List of enabled plugins (only the one which are not enabled by default)

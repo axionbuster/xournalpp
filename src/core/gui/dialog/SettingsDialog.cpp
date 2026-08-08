@@ -7,7 +7,8 @@
 #include <gdk/gdk.h>      // for GdkRGBA, GdkRectangle
 #include <glib-object.h>  // for G_CALLBACK, g_signal...
 
-#include "control/AudioController.h"             // for AudioController
+#include "control/AudioController.h"
+#include "gui/ProjectorWindow.h"                     // for ProjectorWindow
 #include "control/Control.h"                     // for Control
 #include "control/settings/Settings.h"           // for Settings, SElement
 #include "control/settings/SettingsEnums.h"      // for STYLUS_CURSOR_ARROW
@@ -68,6 +69,7 @@ SettingsDialog::SettingsDialog(GladeSearchpath* gladeSearchPath, Settings* setti
     GtkBox* container = GTK_BOX(builder.get("hboxInputDeviceClasses"));
     deviceTestingArea = std::make_unique<DeviceTestingArea>(gladeSearchPath, container, this->settings);
 
+    gtk_box_append(GTK_BOX(builder.get("recordingTabBox")), this->recordingPanel.getPanel());
     gtk_box_append(GTK_BOX(builder.get("latexTabBox")), this->latexPanel.getPanel());
     gtk_box_append(GTK_BOX(builder.get("paletteTabBox")), this->paletteTab.getPanel());
 
@@ -732,6 +734,7 @@ void SettingsDialog::load() {
 #endif
 
     this->latexPanel.load(settings->latexSettings);
+    this->recordingPanel.load(*settings);
     paletteTab.renderPaletteTab(this->control->getPalette().getFilePath());
 }
 
@@ -1102,6 +1105,7 @@ void SettingsDialog::save() {
     this->deviceTestingArea->saveSettings();
 
     this->latexPanel.save(settings->latexSettings);
+    this->recordingPanel.save(*settings);
 
     settings->transactionEnd();
 
@@ -1109,4 +1113,10 @@ void SettingsDialog::save() {
 
     this->control->initButtonTool();
     this->control->getWindow()->getXournal()->onSettingsChanged();
+
+    // Pick up keep-above, aspect lock and background straight away, so the projector does not have
+    // to be closed and reopened for a preference change to be visible.
+    if (ProjectorWindow* projector = this->control->peekProjectorWindow(); projector != nullptr) {
+        projector->applySettings();
+    }
 }

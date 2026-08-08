@@ -110,9 +110,16 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
             for (const ToolbarItem& dataItem: e.getItems()) {
                 std::string name = dataItem.getName();
 
+                // The playback controls genuinely need the audio system. The record button no
+                // longer does: with audio unavailable it still starts a screen capture, which is
+                // run by a separate ffmpeg process.
                 if (!this->control->getAudioController() &&
-                    (name == "AUDIO_RECORDING" || name == "AUDIO_SEEK_BACKWARDS" || name == "AUDIO_PAUSE_PLAYBACK" ||
+                    (name == "AUDIO_SEEK_BACKWARDS" || name == "AUDIO_PAUSE_PLAYBACK" ||
                      name == "AUDIO_STOP_PLAYBACK" || name == "AUDIO_SEEK_FORWARDS" || name == "PLAY_OBJECT")) {
+                    continue;
+                }
+                if (!this->control->getAudioController() && name == "AUDIO_RECORDING" &&
+                    !this->control->getSettings()->isScreenRecordingEnabled()) {
                     continue;
                 }
 
@@ -452,7 +459,11 @@ void ToolMenuHandler::initToolItems() {
                                "format-justify-right", _("Align text to the right"));
 
     emplaceCustomItemTgl("AUDIO_RECORDING", Cat::AUDIO, Action::AUDIO_RECORD, "audio-record",
-                         _("Record Audio / Stop Recording"));
+                         _("Start / Stop Recording"));
+    // Kept in the same category as the recording controls because that is where people look for
+    // it, even though opening and closing it has no effect on a recording.
+    emplaceStockItemTgl("PROJECTOR", Cat::AUDIO, Action::PROJECTOR_WINDOW, "video-display-symbolic",
+                        _("Show / Hide Projector Window"));
     emplaceCustomItemTgl("AUDIO_PAUSE_PLAYBACK", Cat::AUDIO, Action::AUDIO_PAUSE_PLAYBACK, "audio-playback-pause",
                          _("Pause / Play"));
     emplaceCustomItem("AUDIO_STOP_PLAYBACK", Cat::AUDIO, Action::AUDIO_STOP_PLAYBACK, "audio-playback-stop", _("Stop"));

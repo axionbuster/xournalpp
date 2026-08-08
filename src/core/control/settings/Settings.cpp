@@ -222,6 +222,47 @@ void Settings::loadDefault() {
     this->defaultSeekTime = 5;
 #endif
 
+    // Screen recording defaults: a 1080p60 lecture capture, matching what a typical OBS "simple
+    // output" profile produces, so a recording made here drops straight into the same workflow.
+    this->screenRecordingEnabled = true;
+    this->screenRecordingKeepAudioFile = true;
+    this->videoFolder = "";
+    this->screenRecordingFfmpegPath = "";
+    this->screenRecordingWidth = 1920;
+    this->screenRecordingHeight = 1080;
+    this->screenRecordingFps = 60;
+    this->screenRecordingVideoBitrate = 6000;
+    this->screenRecordingAudioBitrate = 160;
+    this->screenRecordingAudioSampleRate = 48000;
+#ifdef __APPLE__
+    // The hardware encoder. Software x264 at 1080p60 costs a core that the drawing needs more.
+    this->screenRecordingVideoCodec = "h264_videotoolbox";
+#else
+    this->screenRecordingVideoCodec = "libx264";
+#endif
+    this->screenRecordingAudioCodec = "aac";
+    this->screenRecordingContainer = "mov";
+    this->screenRecordingCaptureCursor = true;
+    this->screenRecordingVideoDevice = SCREEN_RECORDING_FIRST_SCREEN;
+    this->screenRecordingAudioDevice = 0;
+    this->screenRecordingAudioDeviceName = "";
+    this->screenRecordingRegionX = 0;
+    this->screenRecordingRegionY = 0;
+    this->screenRecordingRegionWidth = 0;
+    this->screenRecordingRegionHeight = 0;
+    this->screenRecordingExtraArguments = "";
+
+    this->projectorPosX = 0;
+    this->projectorPosY = 0;
+    this->projectorWidth = 960;
+    this->projectorHeight = 540;
+    this->projectorMonitor = "";
+    this->projectorKeepAbove = true;
+    this->projectorOpenAtStartup = false;
+    this->projectorLockAspectRatio = true;
+    this->projectorShowSafeArea = false;
+    this->projectorBackgroundColor = Colors::black;
+
     this->pluginEnabled = "";
     this->pluginDisabled = "";
 
@@ -663,6 +704,84 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("audioOutputDevice")) == 0) {
         this->audioOutputDevice = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
 #endif
+
+        // Screen recording
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingEnabled")) == 0) {
+        this->screenRecordingEnabled = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingKeepAudioFile")) == 0) {
+        this->screenRecordingKeepAudioFile = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoFolder")) == 0) {
+        this->videoFolder = fs::path(xoj::util::utf8(value));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingFfmpegPath")) == 0) {
+        this->screenRecordingFfmpegPath = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingWidth")) == 0) {
+        this->screenRecordingWidth = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingHeight")) == 0) {
+        this->screenRecordingHeight =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingFps")) == 0) {
+        this->screenRecordingFps = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingVideoBitrate")) == 0) {
+        this->screenRecordingVideoBitrate =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingAudioBitrate")) == 0) {
+        this->screenRecordingAudioBitrate =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingAudioSampleRate")) == 0) {
+        this->screenRecordingAudioSampleRate =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingVideoCodec")) == 0) {
+        this->screenRecordingVideoCodec = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingAudioCodec")) == 0) {
+        this->screenRecordingAudioCodec = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingContainer")) == 0) {
+        this->screenRecordingContainer = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingCaptureCursor")) == 0) {
+        this->screenRecordingCaptureCursor = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingVideoDevice")) == 0) {
+        this->screenRecordingVideoDevice =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingAudioDevice")) == 0) {
+        this->screenRecordingAudioDevice =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingAudioDeviceName")) == 0) {
+        this->screenRecordingAudioDeviceName = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingRegionX")) == 0) {
+        this->screenRecordingRegionX =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingRegionY")) == 0) {
+        this->screenRecordingRegionY =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingRegionWidth")) == 0) {
+        this->screenRecordingRegionWidth =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingRegionHeight")) == 0) {
+        this->screenRecordingRegionHeight =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("screenRecordingExtraArguments")) == 0) {
+        this->screenRecordingExtraArguments = reinterpret_cast<const char*>(value);
+
+        // Projector window
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorPosX")) == 0) {
+        this->projectorPosX = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorPosY")) == 0) {
+        this->projectorPosY = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorWidth")) == 0) {
+        this->projectorWidth = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorHeight")) == 0) {
+        this->projectorHeight = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorMonitor")) == 0) {
+        this->projectorMonitor = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorKeepAbove")) == 0) {
+        this->projectorKeepAbove = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorOpenAtStartup")) == 0) {
+        this->projectorOpenAtStartup = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorLockAspectRatio")) == 0) {
+        this->projectorLockAspectRatio = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorShowSafeArea")) == 0) {
+        this->projectorShowSafeArea = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorBackgroundColor")) == 0) {
+        this->projectorBackgroundColor = Color(g_ascii_strtoull(reinterpret_cast<const char*>(value), nullptr, 10));
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("numIgnoredStylusEvents")) == 0) {
         this->numIgnoredStylusEvents =
                 std::max<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10), 0);
@@ -1190,6 +1309,47 @@ void Settings::save() {
     SAVE_DOUBLE_PROP(audioGain);
     SAVE_INT_PROP(defaultSeekTime);
 #endif
+
+    SAVE_BOOL_PROP(screenRecordingEnabled);
+    SAVE_BOOL_PROP(screenRecordingKeepAudioFile);
+    saveProperty("videoFolder", char_cast(this->videoFolder.u8string().c_str()), root);
+    SAVE_STRING_PROP(screenRecordingFfmpegPath);
+    ATTACH_COMMENT("Full path to the ffmpeg binary; empty means look on PATH.");
+    SAVE_INT_PROP(screenRecordingWidth);
+    SAVE_INT_PROP(screenRecordingHeight);
+    SAVE_INT_PROP(screenRecordingFps);
+    SAVE_INT_PROP(screenRecordingVideoBitrate);
+    ATTACH_COMMENT("Video bitrate in kbit/s.");
+    SAVE_INT_PROP(screenRecordingAudioBitrate);
+    ATTACH_COMMENT("Audio bitrate in kbit/s.");
+    SAVE_INT_PROP(screenRecordingAudioSampleRate);
+    SAVE_STRING_PROP(screenRecordingVideoCodec);
+    SAVE_STRING_PROP(screenRecordingAudioCodec);
+    SAVE_STRING_PROP(screenRecordingContainer);
+    SAVE_BOOL_PROP(screenRecordingCaptureCursor);
+    SAVE_INT_PROP(screenRecordingVideoDevice);
+    ATTACH_COMMENT("Screen to capture, in the platform grabber's numbering; -1 picks the first screen.");
+    SAVE_INT_PROP(screenRecordingAudioDevice);
+    ATTACH_COMMENT("Microphone to record, in the grabber's separate audio numbering; -1 records no sound.");
+    SAVE_STRING_PROP(screenRecordingAudioDeviceName);
+    SAVE_INT_PROP(screenRecordingRegionX);
+    SAVE_INT_PROP(screenRecordingRegionY);
+    SAVE_INT_PROP(screenRecordingRegionWidth);
+    ATTACH_COMMENT("Region of the captured screen to keep, in captured pixels. 0 means the whole screen.");
+    SAVE_INT_PROP(screenRecordingRegionHeight);
+    SAVE_STRING_PROP(screenRecordingExtraArguments);
+    ATTACH_COMMENT("Extra ffmpeg arguments, appended last so they override everything else.");
+
+    SAVE_INT_PROP(projectorPosX);
+    SAVE_INT_PROP(projectorPosY);
+    SAVE_INT_PROP(projectorWidth);
+    SAVE_INT_PROP(projectorHeight);
+    SAVE_STRING_PROP(projectorMonitor);
+    SAVE_BOOL_PROP(projectorKeepAbove);
+    SAVE_BOOL_PROP(projectorOpenAtStartup);
+    SAVE_BOOL_PROP(projectorLockAspectRatio);
+    SAVE_BOOL_PROP(projectorShowSafeArea);
+    xmlNode = savePropertyUnsigned("projectorBackgroundColor", uint32_t(projectorBackgroundColor), root);
 
     SAVE_STRING_PROP(pluginEnabled);
     SAVE_STRING_PROP(pluginDisabled);
@@ -2373,6 +2533,279 @@ void Settings::setDefaultSeekTime(unsigned int t) {
     save();
 }
 #endif
+
+/*
+ * Screen recording
+ * ---------------------------------------------------------------------------------------------
+ * Every setter follows the same shape as the rest of this file: bail out when nothing changed,
+ * otherwise assign and persist immediately. Writing on every change is what lets the recorder read
+ * settings straight off this object without any notion of "apply".
+ */
+
+auto Settings::isScreenRecordingEnabled() const -> bool { return this->screenRecordingEnabled; }
+
+void Settings::setScreenRecordingEnabled(bool enabled) {
+    if (this->screenRecordingEnabled == enabled) {
+        return;
+    }
+    this->screenRecordingEnabled = enabled;
+    save();
+}
+
+auto Settings::isScreenRecordingKeepAudioFile() const -> bool { return this->screenRecordingKeepAudioFile; }
+
+void Settings::setScreenRecordingKeepAudioFile(bool keep) {
+    if (this->screenRecordingKeepAudioFile == keep) {
+        return;
+    }
+    this->screenRecordingKeepAudioFile = keep;
+    save();
+}
+
+auto Settings::getVideoFolder() const -> fs::path const& { return this->videoFolder; }
+
+void Settings::setVideoFolder(fs::path folder) {
+    if (this->videoFolder == folder) {
+        return;
+    }
+    this->videoFolder = std::move(folder);
+    save();
+}
+
+auto Settings::getScreenRecordingFfmpegPath() const -> string const& { return this->screenRecordingFfmpegPath; }
+
+void Settings::setScreenRecordingFfmpegPath(string path) {
+    if (this->screenRecordingFfmpegPath == path) {
+        return;
+    }
+    this->screenRecordingFfmpegPath = std::move(path);
+    save();
+}
+
+auto Settings::getScreenRecordingWidth() const -> int { return this->screenRecordingWidth; }
+
+auto Settings::getScreenRecordingHeight() const -> int { return this->screenRecordingHeight; }
+
+void Settings::setScreenRecordingSize(int width, int height) {
+    if (this->screenRecordingWidth == width && this->screenRecordingHeight == height) {
+        return;
+    }
+    this->screenRecordingWidth = width;
+    this->screenRecordingHeight = height;
+    save();
+}
+
+auto Settings::getScreenRecordingFps() const -> int { return this->screenRecordingFps; }
+
+void Settings::setScreenRecordingFps(int fps) {
+    if (this->screenRecordingFps == fps) {
+        return;
+    }
+    this->screenRecordingFps = fps;
+    save();
+}
+
+auto Settings::getScreenRecordingVideoBitrate() const -> int { return this->screenRecordingVideoBitrate; }
+
+void Settings::setScreenRecordingVideoBitrate(int kbits) {
+    if (this->screenRecordingVideoBitrate == kbits) {
+        return;
+    }
+    this->screenRecordingVideoBitrate = kbits;
+    save();
+}
+
+auto Settings::getScreenRecordingAudioBitrate() const -> int { return this->screenRecordingAudioBitrate; }
+
+void Settings::setScreenRecordingAudioBitrate(int kbits) {
+    if (this->screenRecordingAudioBitrate == kbits) {
+        return;
+    }
+    this->screenRecordingAudioBitrate = kbits;
+    save();
+}
+
+auto Settings::getScreenRecordingAudioSampleRate() const -> int { return this->screenRecordingAudioSampleRate; }
+
+void Settings::setScreenRecordingAudioSampleRate(int sampleRate) {
+    if (this->screenRecordingAudioSampleRate == sampleRate) {
+        return;
+    }
+    this->screenRecordingAudioSampleRate = sampleRate;
+    save();
+}
+
+auto Settings::getScreenRecordingVideoCodec() const -> string const& { return this->screenRecordingVideoCodec; }
+
+void Settings::setScreenRecordingVideoCodec(string codec) {
+    if (this->screenRecordingVideoCodec == codec) {
+        return;
+    }
+    this->screenRecordingVideoCodec = std::move(codec);
+    save();
+}
+
+auto Settings::getScreenRecordingAudioCodec() const -> string const& { return this->screenRecordingAudioCodec; }
+
+void Settings::setScreenRecordingAudioCodec(string codec) {
+    if (this->screenRecordingAudioCodec == codec) {
+        return;
+    }
+    this->screenRecordingAudioCodec = std::move(codec);
+    save();
+}
+
+auto Settings::getScreenRecordingContainer() const -> string const& { return this->screenRecordingContainer; }
+
+void Settings::setScreenRecordingContainer(string container) {
+    if (this->screenRecordingContainer == container) {
+        return;
+    }
+    this->screenRecordingContainer = std::move(container);
+    save();
+}
+
+auto Settings::isScreenRecordingCaptureCursor() const -> bool { return this->screenRecordingCaptureCursor; }
+
+void Settings::setScreenRecordingCaptureCursor(bool capture) {
+    if (this->screenRecordingCaptureCursor == capture) {
+        return;
+    }
+    this->screenRecordingCaptureCursor = capture;
+    save();
+}
+
+auto Settings::getScreenRecordingVideoDevice() const -> int { return this->screenRecordingVideoDevice; }
+
+void Settings::setScreenRecordingVideoDevice(int index) {
+    if (this->screenRecordingVideoDevice == index) {
+        return;
+    }
+    this->screenRecordingVideoDevice = index;
+    save();
+}
+
+auto Settings::getScreenRecordingAudioDevice() const -> int { return this->screenRecordingAudioDevice; }
+
+void Settings::setScreenRecordingAudioDevice(int index) {
+    if (this->screenRecordingAudioDevice == index) {
+        return;
+    }
+    this->screenRecordingAudioDevice = index;
+    save();
+}
+
+auto Settings::getScreenRecordingAudioDeviceName() const -> string const& {
+    return this->screenRecordingAudioDeviceName;
+}
+
+void Settings::setScreenRecordingAudioDeviceName(string name) {
+    if (this->screenRecordingAudioDeviceName == name) {
+        return;
+    }
+    this->screenRecordingAudioDeviceName = std::move(name);
+    save();
+}
+
+auto Settings::getScreenRecordingRegionX() const -> int { return this->screenRecordingRegionX; }
+auto Settings::getScreenRecordingRegionY() const -> int { return this->screenRecordingRegionY; }
+auto Settings::getScreenRecordingRegionWidth() const -> int { return this->screenRecordingRegionWidth; }
+auto Settings::getScreenRecordingRegionHeight() const -> int { return this->screenRecordingRegionHeight; }
+
+void Settings::setScreenRecordingRegion(int x, int y, int width, int height) {
+    if (this->screenRecordingRegionX == x && this->screenRecordingRegionY == y &&
+        this->screenRecordingRegionWidth == width && this->screenRecordingRegionHeight == height) {
+        return;
+    }
+    this->screenRecordingRegionX = x;
+    this->screenRecordingRegionY = y;
+    this->screenRecordingRegionWidth = width;
+    this->screenRecordingRegionHeight = height;
+    save();
+}
+
+auto Settings::getScreenRecordingExtraArguments() const -> string const& { return this->screenRecordingExtraArguments; }
+
+void Settings::setScreenRecordingExtraArguments(string arguments) {
+    if (this->screenRecordingExtraArguments == arguments) {
+        return;
+    }
+    this->screenRecordingExtraArguments = std::move(arguments);
+    save();
+}
+
+/*
+ * Projector window
+ */
+
+void Settings::setProjectorGeometry(int x, int y, int width, int height, const std::string& monitor) {
+    if (this->projectorPosX == x && this->projectorPosY == y && this->projectorWidth == width &&
+        this->projectorHeight == height && this->projectorMonitor == monitor) {
+        return;
+    }
+    this->projectorPosX = x;
+    this->projectorPosY = y;
+    this->projectorWidth = width;
+    this->projectorHeight = height;
+    this->projectorMonitor = monitor;
+    save();
+}
+
+auto Settings::getProjectorPosX() const -> int { return this->projectorPosX; }
+auto Settings::getProjectorPosY() const -> int { return this->projectorPosY; }
+auto Settings::getProjectorWidth() const -> int { return this->projectorWidth; }
+auto Settings::getProjectorHeight() const -> int { return this->projectorHeight; }
+auto Settings::getProjectorMonitor() const -> string const& { return this->projectorMonitor; }
+
+auto Settings::isProjectorKeepAbove() const -> bool { return this->projectorKeepAbove; }
+
+void Settings::setProjectorKeepAbove(bool keepAbove) {
+    if (this->projectorKeepAbove == keepAbove) {
+        return;
+    }
+    this->projectorKeepAbove = keepAbove;
+    save();
+}
+
+auto Settings::isProjectorOpenAtStartup() const -> bool { return this->projectorOpenAtStartup; }
+
+void Settings::setProjectorOpenAtStartup(bool open) {
+    if (this->projectorOpenAtStartup == open) {
+        return;
+    }
+    this->projectorOpenAtStartup = open;
+    save();
+}
+
+auto Settings::isProjectorLockAspectRatio() const -> bool { return this->projectorLockAspectRatio; }
+
+void Settings::setProjectorLockAspectRatio(bool lock) {
+    if (this->projectorLockAspectRatio == lock) {
+        return;
+    }
+    this->projectorLockAspectRatio = lock;
+    save();
+}
+
+auto Settings::isProjectorShowSafeArea() const -> bool { return this->projectorShowSafeArea; }
+
+void Settings::setProjectorShowSafeArea(bool show) {
+    if (this->projectorShowSafeArea == show) {
+        return;
+    }
+    this->projectorShowSafeArea = show;
+    save();
+}
+
+auto Settings::getProjectorBackgroundColor() const -> Color { return this->projectorBackgroundColor; }
+
+void Settings::setProjectorBackgroundColor(Color color) {
+    if (this->projectorBackgroundColor == color) {
+        return;
+    }
+    this->projectorBackgroundColor = color;
+    save();
+}
 
 auto Settings::getPluginEnabled() const -> string const& { return this->pluginEnabled; }
 

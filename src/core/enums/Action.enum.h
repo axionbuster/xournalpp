@@ -177,6 +177,12 @@ enum class Action : size_t {
     // Miscellaneous
     POSITION_HIGHLIGHTING,
 
+    /**
+     * Show or hide the projector: a chrome-free mirror of the current page in its own
+     * always-on-top window. Independent of recording in both directions.
+     */
+    PROJECTOR_WINDOW,
+
     // Keep this last value
     ENUMERATOR_COUNT
 };

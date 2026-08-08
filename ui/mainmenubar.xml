@@ -194,6 +194,11 @@
      <attribute name="action">win.fullscreen</attribute>
      <attribute name="accel">F11</attribute>
     </item>
+    <item>
+     <attribute name="label" translatable="yes">Projector Window</attribute>
+     <attribute name="action">win.projector-window</attribute>
+     <attribute name="accel">F6</attribute>
+    </item>
    </section>
    <section>
     <item>
@@ -842,7 +847,8 @@
     <item>
      <attribute name="label" translatable="yes">Record / Stop</attribute>
      <attribute name="action">win.audio-record</attribute>
-     <attribute name="class">audio</attribute> <!-- Gets removed when audio is disabled -->
+     <!-- Deliberately not classed "audio": with the audio system off this still starts a
+          screen capture, which runs in a separate ffmpeg process. -->
     </item>
     <item>
      <attribute name="label" translatable="yes">Pause</attribute>
