@@ -79,6 +79,7 @@ private:
     GtkWidget* cbProjectorOpenAtStartup = nullptr;
     GtkWidget* cbProjectorLockAspect = nullptr;
     GtkWidget* cbProjectorShowSafeArea = nullptr;
+    GtkWidget* spProjectorSafeAreaHeight = nullptr;
     GtkWidget* btProjectorBackground = nullptr;
 
     /**

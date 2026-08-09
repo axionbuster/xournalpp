@@ -492,12 +492,15 @@ auto ScreenRecorder::start(const fs::path& file, std::string* error) -> bool {
     return true;
 }
 
-auto ScreenRecorder::onStderrReadable(GIOChannel* source, GIOCondition condition, gpointer data) -> gboolean {
-    auto* self = static_cast<ScreenRecorder*>(data);
+void ScreenRecorder::drainStderr() {
+    if (this->stderrChannel == nullptr) {
+        return;
+    }
 
     gchar buffer[1024];
     gsize read = 0;
-    while (g_io_channel_read_chars(source, buffer, sizeof(buffer) - 1, &read, nullptr) == G_IO_STATUS_NORMAL &&
+    while (g_io_channel_read_chars(this->stderrChannel, buffer, sizeof(buffer) - 1, &read, nullptr) ==
+                   G_IO_STATUS_NORMAL &&
            read > 0) {
         buffer[read] = '\0';
         std::string text(buffer);
@@ -509,11 +512,18 @@ auto ScreenRecorder::onStderrReadable(GIOChannel* source, GIOCondition condition
         }
 
         g_message("ffmpeg: %s", text.c_str());
-        self->recentErrors.push_back(text);
-        if (self->recentErrors.size() > MAX_REMEMBERED_ERRORS) {
-            self->recentErrors.erase(self->recentErrors.begin());
+        this->recentErrors.push_back(text);
+        if (this->recentErrors.size() > MAX_REMEMBERED_ERRORS) {
+            this->recentErrors.erase(this->recentErrors.begin());
         }
     }
+}
+
+auto ScreenRecorder::onStderrReadable(GIOChannel* source, GIOCondition condition, gpointer data) -> gboolean {
+    auto* self = static_cast<ScreenRecorder*>(data);
+    (void)source;
+
+    self->drainStderr();
 
     if ((condition & G_IO_HUP) != 0) {
         self->stderrWatch = 0;
@@ -528,6 +538,11 @@ void ScreenRecorder::onChildExited(GPid pid, gint status, gpointer data) {
     // stop() removes this watch before it waits, so reaching here means ffmpeg gave up on its own.
     self->childWatch = 0;
     self->running = false;
+
+    // Before anything else: the last thing ffmpeg wrote is the reason it stopped, and it may still
+    // be sitting in the pipe unread when this fires.
+    self->drainStderr();
+
     g_spawn_close_pid(pid);
     self->pid = 0;
 
@@ -537,6 +552,18 @@ void ScreenRecorder::onChildExited(GPid pid, gint status, gpointer data) {
     } else if (status != 0) {
         message += "\n\n" + FS(_F("ffmpeg exited with status {1}.") % status);
     }
+
+#ifdef __APPLE__
+    // macOS does not refuse a capture it has not been asked to permit -- it kills the process that
+    // tried. Nothing is written to stderr on the way out, so the signal is the only evidence there
+    // is, and the tail above will be some unrelated warning from earlier in the run.
+    if (WIFSIGNALED(status)) {
+        message += "\n\n";
+        message += _("macOS stopped ffmpeg before it could record anything. Give Xournal++ permission "
+                     "under System Settings > Privacy & Security -- \"Screen & System Audio Recording\", "
+                     "and \"Microphone\" as well if the recording includes sound -- and try again.");
+    }
+#endif
 
     self->reap();
     self->filename.clear();

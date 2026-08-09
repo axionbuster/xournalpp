@@ -260,7 +260,10 @@ void Settings::loadDefault() {
     this->projectorKeepAbove = true;
     this->projectorOpenAtStartup = false;
     this->projectorLockAspectRatio = true;
-    this->projectorShowSafeArea = false;
+    this->projectorShowSafeArea = true;
+    // 150 lines of a 1080-line frame. Subtitling houses ask for a bottom margin in finished-video
+    // pixels rather than a percentage, and 150 is the usual ask for 1080p.
+    this->projectorSafeAreaHeight = 150;
     this->projectorBackgroundColor = Colors::black;
 
     this->pluginEnabled = "";
@@ -780,6 +783,9 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->projectorLockAspectRatio = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorShowSafeArea")) == 0) {
         this->projectorShowSafeArea = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorSafeAreaHeight")) == 0) {
+        this->projectorSafeAreaHeight =
+                std::max<int>(0, static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10)));
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorBackgroundColor")) == 0) {
         this->projectorBackgroundColor = Color(g_ascii_strtoull(reinterpret_cast<const char*>(value), nullptr, 10));
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("numIgnoredStylusEvents")) == 0) {
@@ -1349,6 +1355,8 @@ void Settings::save() {
     SAVE_BOOL_PROP(projectorOpenAtStartup);
     SAVE_BOOL_PROP(projectorLockAspectRatio);
     SAVE_BOOL_PROP(projectorShowSafeArea);
+    SAVE_INT_PROP(projectorSafeAreaHeight);
+    ATTACH_COMMENT("Height of the caption safe area, in pixels of the recording's own frame.");
     xmlNode = savePropertyUnsigned("projectorBackgroundColor", uint32_t(projectorBackgroundColor), root);
 
     SAVE_STRING_PROP(pluginEnabled);
@@ -2794,6 +2802,17 @@ void Settings::setProjectorShowSafeArea(bool show) {
         return;
     }
     this->projectorShowSafeArea = show;
+    save();
+}
+
+auto Settings::getProjectorSafeAreaHeight() const -> int { return this->projectorSafeAreaHeight; }
+
+void Settings::setProjectorSafeAreaHeight(int pixels) {
+    const int clamped = std::max(0, pixels);
+    if (this->projectorSafeAreaHeight == clamped) {
+        return;
+    }
+    this->projectorSafeAreaHeight = clamped;
     save();
 }
 

@@ -298,6 +298,13 @@ void ProjectorWindow::drawPage(cairo_t* cr, int width, int height) {
     const size_t pageNo = control->getCurrentPageNo();
     XournalView* xournal = control->getWindow() != nullptr ? control->getWindow()->getXournal() : nullptr;
 
+    // Where the page ends up inside the window. The caption guide belongs over the picture, not
+    // over the letterbox around it, so it has to be drawn against this rather than the window.
+    double contentX = 0.0;
+    double contentY = 0.0;
+    double contentWidth = 0.0;
+    double contentHeight = 0.0;
+
     {
         // A SHARED lock, taken exactly once for the whole render, as RenderJob does. Document's
         // lock is a shared_mutex and is not reentrant, so taking it twice on this thread -- once to
@@ -320,8 +327,13 @@ void ProjectorWindow::drawPage(cairo_t* cr, int width, int height) {
         }
 
         const double scale = std::min(width / pageWidth, height / pageHeight);
+        contentWidth = pageWidth * scale;
+        contentHeight = pageHeight * scale;
+        contentX = (width - contentWidth) / 2.0;
+        contentY = (height - contentHeight) / 2.0;
+
         cairo_save(cr);
-        cairo_translate(cr, (width - pageWidth * scale) / 2.0, (height - pageHeight * scale) / 2.0);
+        cairo_translate(cr, contentX, contentY);
         cairo_scale(cr, scale, scale);
         cairo_rectangle(cr, 0, 0, pageWidth, pageHeight);
         cairo_clip(cr);
@@ -352,16 +364,41 @@ void ProjectorWindow::drawPage(cairo_t* cr, int width, int height) {
         cairo_restore(cr);
     }
 
-    if (settings->isProjectorShowSafeArea()) {
-        // A band across the bottom marking where burnt-in captions would sit, so nothing important
-        // gets written underneath them. Translucent, and never on by default: the projector is
-        // usually within the recorded area, and a guide that ends up in the recording is worse than
-        // no guide at all.
-        const double bandHeight = height * 0.12;
-        cairo_set_source_rgba(cr, 0.65, 0.13, 0.11, 0.55);
-        cairo_rectangle(cr, 0, height - bandHeight, width, bandHeight);
-        cairo_fill(cr);
+    drawSafeArea(cr, contentX, contentY, contentWidth, contentHeight);
+}
+
+void ProjectorWindow::drawSafeArea(cairo_t* cr, double x, double y, double areaWidth, double areaHeight) {
+    Settings* settings = control->getSettings();
+    if (!settings->isProjectorShowSafeArea() || areaWidth <= 0.0 || areaHeight <= 0.0) {
+        return;
     }
+
+    // The setting is given in lines of the finished video, because that is how a subtitling
+    // requirement is written down ("keep the bottom 150 px clear"). Turning it into a fraction of
+    // the frame is what makes it mean the same thing in a projector window of any size.
+    const int frameHeight = std::max(1, settings->getScreenRecordingHeight());
+    const double fraction = static_cast<double>(settings->getProjectorSafeAreaHeight()) / frameHeight;
+    const double bandHeight = std::min(areaHeight, areaHeight * fraction);
+    if (bandHeight <= 0.0) {
+        return;
+    }
+
+    const double top = y + areaHeight - bandHeight;
+
+    // Drawn only here, never into the recording: this window renders the page a second time for
+    // the screen, and the encoder is fed the screen grabber's own frames, which nothing in this
+    // file touches. Translucent so the guide shows what is underneath it rather than hiding the
+    // very writing it is there to warn about.
+    cairo_set_source_rgba(cr, 0.65, 0.13, 0.11, 0.45);
+    cairo_rectangle(cr, x, top, areaWidth, bandHeight);
+    cairo_fill(cr);
+
+    // A crisp edge, because the useful part of the guide is the line not to write below.
+    cairo_set_source_rgba(cr, 0.90, 0.25, 0.20, 0.95);
+    cairo_set_line_width(cr, 2.0);
+    cairo_move_to(cr, x, top + 1.0);
+    cairo_line_to(cr, x + areaWidth, top + 1.0);
+    cairo_stroke(cr);
 }
 
 void ProjectorWindow::queueRedraw() {

@@ -174,6 +174,14 @@ private:
     /// Reap the child, tearing down the watch and the pipes. Safe to call when not running.
     void reap();
 
+    /**
+     * Read whatever ffmpeg has written to stderr since the last time and remember the tail of it.
+     * Called both from the watch and, once more, when the child exits: ffmpeg prints the reason it
+     * is giving up immediately before exiting, and the two GLib sources are dispatched
+     * independently, so without a final read the recorded tail can stop short of the reason.
+     */
+    void drainStderr();
+
     static void onChildExited(GPid pid, gint status, gpointer data);
     static gboolean onStderrReadable(GIOChannel* source, GIOCondition condition, gpointer data);
 

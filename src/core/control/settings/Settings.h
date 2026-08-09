@@ -597,6 +597,14 @@ public:
     bool isProjectorShowSafeArea() const;
     void setProjectorShowSafeArea(bool show);
 
+    /**
+     * Height of that band, in pixels of the recording's own frame -- so 150 against a 1080-line
+     * recording marks the bottom 150 lines of the finished video, which is how a subtitling
+     * requirement is normally written down. The projector scales it to whatever size it is at.
+     */
+    int getProjectorSafeAreaHeight() const;
+    void setProjectorSafeAreaHeight(int pixels);
+
     Color getProjectorBackgroundColor() const;
     void setProjectorBackgroundColor(Color color);
 
@@ -1317,6 +1325,7 @@ private:
     bool projectorOpenAtStartup{};
     bool projectorLockAspectRatio{};
     bool projectorShowSafeArea{};
+    int projectorSafeAreaHeight{};
     Color projectorBackgroundColor{};
 
     /**

@@ -271,14 +271,28 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
 
         this->cbProjectorShowSafeArea = gtk_check_button_new_with_label(_("Show the caption safe area"));
         gtk_widget_set_tooltip_text(this->cbProjectorShowSafeArea,
-                                    _("Marks where burnt-in captions would sit. Remember that this guide is part of "
-                                      "the projector window, so it appears in a recording that includes it."));
+                                    _("Shades the strip along the bottom of the page that burnt-in captions will "
+                                      "cover, so nothing worth reading gets written into it. The shading belongs to "
+                                      "the projector window and is never encoded into the recording -- though a "
+                                      "capture wide enough to include the projector window would of course show it."));
         gtk_box_pack_start(GTK_BOX(content), this->cbProjectorShowSafeArea, FALSE, TRUE, 0);
 
         GtkWidget* grid = makeGrid();
+        int row = 0;
+
+        this->spProjectorSafeAreaHeight = makeSpin(0, 4320, 10);
+        gtk_widget_set_tooltip_text(this->spProjectorSafeAreaHeight,
+                                    _("Measured in lines of the finished video, which is how a subtitling "
+                                      "requirement is usually written down. 150 against a 1080-line recording marks "
+                                      "the bottom 150 lines, whatever size the projector window is."));
+        GtkWidget* safeAreaBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_box_pack_start(GTK_BOX(safeAreaBox), this->spProjectorSafeAreaHeight, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(safeAreaBox), gtk_label_new(_("px of the recorded frame")), FALSE, FALSE, 0);
+        addRow(grid, row++, _("Safe area height:"), safeAreaBox);
+
         this->btProjectorBackground = gtk_color_button_new();
         gtk_widget_set_halign(this->btProjectorBackground, GTK_ALIGN_START);
-        addRow(grid, 0, _("Background:"), this->btProjectorBackground);
+        addRow(grid, row++, _("Background:"), this->btProjectorBackground);
         gtk_box_pack_start(GTK_BOX(content), grid, FALSE, TRUE, 0);
 
         gtk_box_pack_start(GTK_BOX(column), frame, FALSE, TRUE, 0);
@@ -467,6 +481,8 @@ void RecordingSettingsPanel::load(const Settings& settings) {
                                  settings.isProjectorOpenAtStartup());
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbProjectorLockAspect), settings.isProjectorLockAspectRatio());
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbProjectorShowSafeArea), settings.isProjectorShowSafeArea());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spProjectorSafeAreaHeight),
+                              settings.getProjectorSafeAreaHeight());
 
     GdkRGBA background = Util::rgb_to_GdkRGBA(settings.getProjectorBackgroundColor());
     gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(this->btProjectorBackground), &background);
@@ -508,6 +524,8 @@ void RecordingSettingsPanel::save(Settings& settings) {
     settings.setProjectorOpenAtStartup(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbProjectorOpenAtStartup)));
     settings.setProjectorLockAspectRatio(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbProjectorLockAspect)));
     settings.setProjectorShowSafeArea(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbProjectorShowSafeArea)));
+    settings.setProjectorSafeAreaHeight(
+            gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spProjectorSafeAreaHeight)));
 
     GdkRGBA background{};
     gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(this->btProjectorBackground), &background);

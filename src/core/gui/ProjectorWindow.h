@@ -96,6 +96,15 @@ private:
     /// Paint one page, letterboxed and centred, into a widget-sized area.
     void drawPage(cairo_t* cr, int width, int height);
 
+    /**
+     * Mark the strip along the bottom of the page that burnt-in captions will later cover, so
+     * nothing worth reading gets written into it. A preview aid only -- the recording is made from
+     * the screen grabber's frames, which never see anything this class draws.
+     *
+     * @param x,y,areaWidth,areaHeight  The page's rectangle inside the window, letterbox excluded.
+     */
+    void drawSafeArea(cairo_t* cr, double x, double y, double areaWidth, double areaHeight);
+
     Control* control;
 
     GtkWidget* window = nullptr;
