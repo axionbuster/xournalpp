@@ -83,21 +83,54 @@ all produced: the cost lands on the person at the keyboard, not on the file.
 So a page is drawn once and the picture kept. The kept picture holds the page's settled content;
 ink still under the pen is an overlay and is drawn afresh on every frame, which is what makes
 writing appear as it is written. `Control::getCanvasRevision()` says when the settled content has
-moved -- a stroke finished, an undo, a background swapped, a layer hidden -- and only then is the
-page drawn again. On the same page the cost falls to **0.55 ms**, which is 3% of a core rather than
-226%.
+moved -- a stroke finished, an undo, a background swapped, a layer hidden. On the same page a
+frame falls to **0.55 ms**, which is 3% of a core rather than 226%.
+
+Renewing the picture is itself kept off the UI thread, because the renewals were the last thing
+still stalling it: a page re-render at every stroke's end, plus one per consumer every quarter
+second, each worth tens of milliseconds, felt exactly like intermittent lag -- and twice as much
+of it with the projector open, which is how it was first noticed. Three routes now renew the
+picture, in order of cheapness:
+
+- **A finished stroke is drawn straight into the kept picture**, the same way the main view draws
+  it into its own buffer, before the overlay it came from is deleted. That order is what keeps the
+  newest stroke from flickering out of the projector and the recording for even a frame. It costs
+  one stroke.
+- **Everything else goes through a scheduler worker** -- the same pool the main view renders on.
+  An undo, an eraser pass, a background change bump the revision; the next frame notices, kicks a
+  background render, and keeps blitting the old picture until the new one lands a few frames
+  later. A wrong-for-40-ms picture is invisible; a 40 ms stall under the pen is not.
+- **Only a page flip or a resize renders synchronously**, because those need a genuinely different
+  picture, and holding the previous page on show would be a lie the projector's audience sees.
 
 Any such scheme has to answer what happens to a change nobody reports, because a recording that
-silently stops following the page is a worse failure than a slow one. Two things answer it. Every
-route a change is known to take says so, including the ones that reach the page without a repaint
-ever passing through `RepaintHandler` -- an undo takes exactly that route, which is why the
-projector used to show one only after the next stroke shook it loose. And whatever anybody reports,
-a page is redrawn if its picture is more than a quarter of a second old, so an unreported change
-costs a few frames of staleness rather than the rest of the recording.
+silently stops following the page is a worse failure than a slow one. Every route a change is
+known to take says so, including the ones that reach the page without ever passing through
+`RepaintHandler` -- an undo takes exactly that route, which is why the projector used to show one
+only after the next stroke shook it loose. And whatever anybody reports, a picture more than a
+quarter of a second old is renewed regardless -- in the background, so the safety net costs
+nothing on the thread that matters.
+
+The recorder also skips frames that cannot differ from the last one: same kept picture, same page,
+no overlays on either side means the pixels are identical, so nothing is packed and the writer
+just re-sends its copy on schedule, which is what it does between frames anyway. Most of a lecture
+is a still page being talked about, and a still page now costs approximately nothing.
 
 The projector repaints on a clock of its own for the same reason, at thirty frames a second rather
 than once per motion event: a tablet sends motion far faster than anyone can see, and each one used
 to mean another full page.
+
+## The scrollbar during a lecture
+
+Presentation mode now shows no scrollbars at all. Free scrolling is already suppressed there --
+changing pages is the only way the view moves -- so a scrollbar cannot do its job in presentation
+mode; what it turned out to do instead is blink. GTK fades its overlay scrollbar indicator in on
+**every pointer motion over the window** -- there is no proximity test, and pens are not excluded
+-- and the timer that hides it again runs out mid-stroke during sustained writing, so the
+indicator flickered in and out over the page the whole time the pen was down. Hiding the bar is
+not enough on its own, either: the indicator machinery runs off the scrolled window's own idea of
+whether a scrollbar is warranted, so the scrollbar policy is set to NEVER along with it. Outside
+presentation mode the scrollbars behave exactly as configured in the preferences.
 
 Both pipes are handed to ffmpeg by GLib's own descriptor mapping, not by a child-setup function
 with `G_SPAWN_LEAVE_DESCRIPTORS_OPEN`. That flag also leaves the *writing* ends open inside the
@@ -176,6 +209,10 @@ pixels, because that is how a subtitling requirement is normally written down --
 150 px clear" at 1080p. The projector converts it to a fraction of the recording's frame height and
 applies that to the page rectangle, so the guide means the same thing whatever size the window
 happens to be.
+
+The guide is a plain translucent fill with no edge line: everything under the tint is covered, and
+the first clear row is the first safe one. An edge line was tried and removed -- it invited the
+question of whether the line's own rows were inside or outside the covered strip.
 
 The shading is drawn by `ProjectorWindow` and by nothing else. It cannot reach the recording, which
 is drawn separately and never sees anything the projector does.

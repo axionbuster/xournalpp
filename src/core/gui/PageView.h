@@ -185,8 +185,11 @@ public:  // event handler
      * content lives in the document model, so there is no other way to reach it.
      *
      * Must be called on the UI thread, like the rest of the overlay handling.
+     *
+     * @return How many overlay views were drawn -- zero meaning the frame held settled content
+     *         and nothing else, which is what lets a recorder skip identical frames.
      */
-    void drawOverlays(cairo_t* cr) const;
+    size_t drawOverlays(cairo_t* cr) const;
 
     void deleteLaserPointerHandler();
 

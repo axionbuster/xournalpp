@@ -1,5 +1,6 @@
 #include "RecordButton.h"
 
+#include <string>   // for string
 #include <utility>  // for move
 
 #include "control/Control.h"  // for Control
@@ -45,7 +46,12 @@ auto formatElapsed(gint64 microseconds) -> std::string {
 auto updateCounter(gpointer data) -> gboolean {
     auto* counter = static_cast<ElapsedTimeCounter*>(data);
     const gint64 started = counter->control->getRecordingStartTime();
-    gtk_label_set_text(GTK_LABEL(counter->label), formatElapsed(started > 0 ? g_get_monotonic_time() - started : 0).c_str());
+    const std::string text = formatElapsed(started > 0 ? g_get_monotonic_time() - started : 0);
+    // Only when the text really changed: GTK3's gtk_label_set_text queues a resize of the whole
+    // window even for identical text, and this ticks twice per displayed second.
+    if (text != gtk_label_get_text(GTK_LABEL(counter->label))) {
+        gtk_label_set_text(GTK_LABEL(counter->label), text.c_str());
+    }
     return G_SOURCE_CONTINUE;
 }
 

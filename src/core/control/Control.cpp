@@ -365,7 +365,9 @@ void Control::initWindow(MainWindow* win) {
             setProjectorVisible(true);
         });
     }
+
 }
+
 
 auto Control::autosaveCallback(Control* control) -> bool {
     if (!control->undoRedo->isChangedAutosave()) {
@@ -1093,6 +1095,12 @@ void Control::setViewPresentationMode(bool enabled) {
     }
     zoom->setZoomPresentationMode(enabled);
     settings->setPresentationMode(enabled);
+
+    // After setPresentationMode, which is what this reads: scrollbars are hidden in presentation
+    // mode and put back when it ends. See MainWindow::updateScrollbarSidebarPosition.
+    if (this->win != nullptr) {
+        this->win->updateScrollbarSidebarPosition();
+    }
 
     // Disable Zoom
     this->actionDB->enableAction(Action::ZOOM_IN, !enabled);
@@ -2768,6 +2776,16 @@ auto Control::getCanvasRevision() const -> std::uint64_t {
 }
 
 void Control::bumpCanvasRevision() { this->canvasRevision.fetch_add(1, std::memory_order_relaxed); }
+
+void Control::toolViewSettled(const PageRef& page, const xoj::view::ToolView* v) {
+    if (this->videoRecorder) {
+        this->videoRecorder->onToolViewSettled(page, v);
+    }
+    if (this->projectorWindow) {
+        this->projectorWindow->onToolViewSettled(page, v);
+    }
+    bumpCanvasRevision();
+}
 
 auto Control::startRecording(std::string* error) -> bool {
     if (isRecording()) {

@@ -489,6 +489,9 @@ auto VideoRecorder::start(const fs::path& file, std::string* error) -> bool {
     this->pending.clear();
     this->spare.clear();
     this->frameCache.invalidate();
+    this->lastFramePage = PageRef{};
+    this->lastFrameGeneration = 0;
+    this->lastFrameHadOverlays = false;
 
     this->stderrChannel = g_io_channel_unix_new(childStderr);
     g_io_channel_set_encoding(this->stderrChannel, nullptr, nullptr);
@@ -715,6 +718,12 @@ void VideoRecorder::setUnexpectedExitCallback(std::function<void(const std::stri
     this->unexpectedExitCallback = std::move(callback);
 }
 
+void VideoRecorder::onToolViewSettled(const PageRef& page, const xoj::view::ToolView* v) {
+    if (this->running) {
+        this->frameCache.drawSettled(page, v);
+    }
+}
+
 // ===========================================================================================
 // 5. Frames
 // ===========================================================================================
@@ -742,11 +751,24 @@ void VideoRecorder::renderFrame() {
     }
 
     cairo_t* cr = cairo_create(this->surface);
-    xoj::canvas::drawCurrentPage(&this->control, cr, cairo_image_surface_get_width(this->surface),
-                                 cairo_image_surface_get_height(this->surface),
-                                 this->control.getSettings()->getProjectorBackgroundColor(), &this->frameCache);
+    const auto layout = xoj::canvas::drawCurrentPage(&this->control, cr, cairo_image_surface_get_width(this->surface),
+                                                     cairo_image_surface_get_height(this->surface),
+                                                     this->control.getSettings()->getProjectorBackgroundColor(),
+                                                     &this->frameCache);
     cairo_destroy(cr);
     cairo_surface_flush(this->surface);
+
+    // Pixel-identical to the frame already in the writer's hands? Then there is nothing to pack
+    // and nothing to hand over -- the writer keeps re-sending its copy on its own clock, which is
+    // what it does between frames anyway. Most of a lecture is a still page being talked about.
+    const std::uint64_t generation = this->frameCache.getGeneration();
+    if (!layout.overlaysDrawn && !this->lastFrameHadOverlays && layout.page == this->lastFramePage &&
+        generation == this->lastFrameGeneration) {
+        return;
+    }
+    this->lastFramePage = layout.page;
+    this->lastFrameGeneration = generation;
+    this->lastFrameHadOverlays = layout.overlaysDrawn;
 
     const int frameWidth = cairo_image_surface_get_width(this->surface);
     const int frameHeight = cairo_image_surface_get_height(this->surface);

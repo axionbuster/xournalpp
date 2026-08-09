@@ -31,6 +31,7 @@
 
 #include <atomic>              // for atomic
 #include <condition_variable>  // for condition_variable
+#include <cstdint>             // for uint64_t
 #include <functional>          // for function
 #include <memory>              // for unique_ptr
 #include <mutex>               // for mutex
@@ -194,6 +195,12 @@ public:
      */
     void setUnexpectedExitCallback(std::function<void(const std::string& message)> callback);
 
+    /**
+     * A finished stroke was just drawn into the main view's buffer; draw it into the kept frame
+     * picture too, so it never flickers out of the recording. See FrameCache::drawSettled.
+     */
+    void onToolViewSettled(const PageRef& page, const xoj::view::ToolView* v);
+
     // ---------------------------------------------------------------------------------------
     // Configuration, exposed for the preferences dialog
     // ---------------------------------------------------------------------------------------
@@ -246,6 +253,16 @@ private:
 
     /// The page as it was last drawn, so an unchanged page is not re-rendered sixty times a second.
     xoj::canvas::FrameCache frameCache;
+
+    /**
+     * What the last published frame contained. When the picture's generation, the page and the
+     * absence of overlays all match, the new frame is pixel-identical to the last one -- so it is
+     * not packed or handed over at all, and the writer re-sends the previous frame on its own
+     * clock. Most of a lecture is a still page; this is what makes a still page cost nothing.
+     */
+    PageRef lastFramePage;
+    std::uint64_t lastFrameGeneration = 0;
+    bool lastFrameHadOverlays = false;
 
     /**
      * Handoff between the UI thread and the writer. `pending` is a fully packed frame waiting to be

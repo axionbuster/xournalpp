@@ -59,8 +59,18 @@ ProjectorWindow::ProjectorWindow(Control* control): control(control) {
     gtk_widget_realize(this->window);
     applyNativeWindowTabbing();
 
+    // A background re-render landing is invisible until something repaints; the redraw clock
+    // turns this flag into an actual frame.
+    this->frameCache.setRefreshedCallback([this]() { queueRedraw(); });
+
     this->registerListener(control);
     applySettings();
+}
+
+void ProjectorWindow::onToolViewSettled(const PageRef& page, const xoj::view::ToolView* v) {
+    if (this->visible) {
+        this->frameCache.drawSettled(page, v);
+    }
 }
 
 ProjectorWindow::~ProjectorWindow() {
@@ -391,19 +401,14 @@ void ProjectorWindow::drawSafeArea(cairo_t* cr, double x, double y, double areaW
     const double top = y + areaHeight - bandHeight;
 
     // Drawn only here, never into the recording: this window renders the page a second time for
-    // the screen, and the encoder is fed the screen grabber's own frames, which nothing in this
-    // file touches. Translucent so the guide shows what is underneath it rather than hiding the
-    // very writing it is there to warn about.
+    // the screen, and the encoder is fed its own frames, which nothing in this file touches.
+    // Translucent so the guide shows what is underneath it rather than hiding the very writing it
+    // is there to warn about. A plain fill and nothing else -- an edge line invites the question
+    // of whether the line's own rows are covered, and a fill answers it: everything tinted is
+    // covered, and the first clear row is the first safe one.
     cairo_set_source_rgba(cr, 0.65, 0.13, 0.11, 0.45);
     cairo_rectangle(cr, x, top, areaWidth, bandHeight);
     cairo_fill(cr);
-
-    // A crisp edge, because the useful part of the guide is the line not to write below.
-    cairo_set_source_rgba(cr, 0.90, 0.25, 0.20, 0.95);
-    cairo_set_line_width(cr, 2.0);
-    cairo_move_to(cr, x, top + 1.0);
-    cairo_line_to(cr, x + areaWidth, top + 1.0);
-    cairo_stroke(cr);
 }
 
 namespace {

@@ -872,19 +872,25 @@ void XojPageView::repaintArea(double x1, double y1, double x2, double y2) const 
 void XojPageView::flagDirtyRegion(const Range& rg) const { repaintArea(rg.minX, rg.minY, rg.maxX, rg.maxY); }
 
 void XojPageView::drawAndDeleteToolView(xoj::view::ToolView* v, const Range& rg) {
-    // A finished stroke stops being an overlay and becomes part of the page here, without any
-    // re-render being asked for -- the main view just draws it into the buffer it already has. Say
-    // so, or a cached copy of the page would keep the moment before the pen was lifted.
-    this->xournal->getControl()->bumpCanvasRevision();
-
     if (v->isViewOf(this->inputHandler.get()) || v->isViewOf(this->verticalSpace.get()) ||
         v->isViewOf(this->textEditor.get())) {
-        // Draw the inputHandler's view onto the page buffer.
-        std::lock_guard lock(this->drawingMutex);
-        if (auto cr = buffer.get(); cr) {
-            v->drawWithoutDrawingAids(cr);
-        } else {
-            rerenderPage();
+        bool drewIntoBuffer = false;
+        {
+            // Draw the inputHandler's view onto the page buffer.
+            std::lock_guard lock(this->drawingMutex);
+            if (auto cr = buffer.get(); cr) {
+                v->drawWithoutDrawingAids(cr);
+                drewIntoBuffer = true;
+            } else {
+                rerenderPage();
+            }
+        }
+        if (drewIntoBuffer) {
+            // The stroke stopped being an overlay and became part of the page without any
+            // re-render being asked for. Anyone keeping a picture of the page -- the projector,
+            // the video recorder -- must be told the same way this view's own buffer was, and
+            // before deleteOverlayView() below takes the overlay out of their next frame.
+            this->xournal->getControl()->toolViewSettled(this->page, v);
         }
     }
     this->deleteOverlayView(v, rg);
@@ -1133,10 +1139,11 @@ auto XojPageView::paintPage(cairo_t* cr, GdkRectangle* rect) -> bool {
     return true;
 }
 
-void XojPageView::drawOverlays(cairo_t* cr) const {
+auto XojPageView::drawOverlays(cairo_t* cr) const -> size_t {
     for (const auto& v: this->overlayViews) {
         v->draw(cr);
     }
+    return this->overlayViews.size();
 }
 
 /**

@@ -62,6 +62,12 @@ public:
     void notifyRepaint(const PageRef& page);
 
     /**
+     * A finished stroke was just drawn into the main view's buffer; draw it into the kept page
+     * picture too, so it never flickers out of the projector. See FrameCache::drawSettled.
+     */
+    void onToolViewSettled(const PageRef& page, const xoj::view::ToolView* v);
+
+    /**
      * Remember the current monitor, position and size. Called on hide and at shutdown, while the
      * window still exists.
      */

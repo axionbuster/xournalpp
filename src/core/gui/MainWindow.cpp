@@ -434,6 +434,15 @@ void MainWindow::updateScrollbarSidebarPosition() {
 
         ScrollbarHideType type = this->getControl()->getSettings()->getScrollbarHideType();
 
+        // No scrollbars in presentation mode, whatever the preference says. Free scrolling is
+        // already suppressed there (Layout::scrollAbs is a no-op), so the bar cannot do its job;
+        // what it can do is blink. GTK's overlay indicator fades in on EVERY pointer motion over
+        // the window -- no proximity test, pens included -- and its hide timer runs out during a
+        // sustained stroke, so writing makes the indicator flicker in and out over the page.
+        if (this->getControl()->getSettings()->isPresentationMode()) {
+            type = SCROLLBAR_HIDE_BOTH;
+        }
+
         bool scrollbarOnLeft = control->getSettings()->isScrollbarOnLeft();
         if (scrollbarOnLeft) {
             gtk_scrolled_window_set_placement(scrolledWindow, GTK_CORNER_TOP_RIGHT);
@@ -443,6 +452,13 @@ void MainWindow::updateScrollbarSidebarPosition() {
 
         gtk_widget_set_visible(gtk_scrolled_window_get_hscrollbar(scrolledWindow), !(type & SCROLLBAR_HIDE_HORIZONTAL));
         gtk_widget_set_visible(gtk_scrolled_window_get_vscrollbar(scrolledWindow), !(type & SCROLLBAR_HIDE_VERTICAL));
+
+        // Hiding the scrollbar widget is not enough on its own: the overlay indicator is a
+        // machinery of its own, driven off the scrolled window's idea of whether a scrollbar is
+        // warranted, not off the widget's visibility. Policy NEVER is what turns that idea off.
+        gtk_scrolled_window_set_policy(scrolledWindow,
+                                       (type & SCROLLBAR_HIDE_HORIZONTAL) ? GTK_POLICY_NEVER : GTK_POLICY_AUTOMATIC,
+                                       (type & SCROLLBAR_HIDE_VERTICAL) ? GTK_POLICY_NEVER : GTK_POLICY_AUTOMATIC);
 
         gtk_scrolled_window_set_overlay_scrolling(scrolledWindow,
                                                   !control->getSettings()->isScrollbarFadeoutDisabled());

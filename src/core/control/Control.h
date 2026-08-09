@@ -75,6 +75,10 @@ class XojFont;
 class XojPdfRectangle;
 class Callback;
 class ActionDatabase;
+
+namespace xoj::view {
+class ToolView;
+}
 class NavigationHistory;
 
 class Control:
@@ -372,6 +376,15 @@ public:
 
     /// Say that the settled content of a page has changed. Cheap; safe from any thread.
     void bumpCanvasRevision();
+
+    /**
+     * A tool view has just been drawn into the main view's page buffer -- a finished stroke,
+     * mostly. Patches the projector's and the recorder's kept pictures the same way, so the
+     * stroke never flickers out of them, then bumps the canvas revision so their background
+     * reconcile still runs. Called by XojPageView before the overlay is deleted.
+     */
+    void toolViewSettled(const PageRef& page, const xoj::view::ToolView* v);
+
 
     PageTypeHandler* getPageTypes() const;
     PageBackgroundChangeController* getPageBackgroundChangeController() const;
