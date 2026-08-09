@@ -349,6 +349,14 @@ public:
 
     bool isRecording() const;
 
+    /**
+     * When the recording in progress started, on g_get_monotonic_time()'s clock, or 0 when nothing
+     * is being recorded. Kept here rather than in the toolbar button so that a button built partway
+     * through a recording -- after the toolbars are reconfigured, say -- still shows the real
+     * elapsed time.
+     */
+    gint64 getRecordingStartTime() const;
+
     PageTypeHandler* getPageTypes() const;
     PageBackgroundChangeController* getPageBackgroundChangeController() const;
     LayerController* getLayerController() const;
@@ -415,6 +423,9 @@ protected:
     void eraserSizeChanged();
     void penSizeChanged();
     void highlighterSizeChanged();
+
+    /// Note that a recording has begun or ended: the elapsed-time clock and the stop button.
+    void recordingStateChanged(bool recording);
 
     static bool checkChangedDocument(Control* control);
     static bool autosaveCallback(Control* control);
@@ -608,6 +619,9 @@ private:
      * ffmpeg process and shares nothing with the PortAudio pipeline.
      */
     std::unique_ptr<VideoRecorder> videoRecorder;
+
+    /// g_get_monotonic_time() at the moment the current recording started; 0 when idle.
+    gint64 recordingStartTime = 0;
 
     /**
      * Created the first time the projector is opened and then kept, so that closing and reopening

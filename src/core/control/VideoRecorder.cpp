@@ -1,15 +1,17 @@
 // Table of contents
 //   1. Small helpers ............ shell quoting, ffmpeg lookup
-//   2. Command line ............. VideoRecorderConfig
-//   3. Starting and stopping .... start / stop / teardown and the GLib watches
-//   4. Frames ................... the render tick and the writer thread
-//   5. Output paths ............. buildOutputPath
+//   2. Microphone processing .... AudioFilterConfig
+//   3. Command line ............. VideoRecorderConfig
+//   4. Starting and stopping .... start / stop / teardown and the GLib watches
+//   5. Frames ................... the render tick and the writer thread
+//   6. Output paths ............. buildOutputPath
 
 #include "VideoRecorder.h"
 
 #include <algorithm>  // for max, min
 #include <array>      // for array
 #include <chrono>     // for steady_clock
+#include <cmath>      // for abs, sqrt
 #include <cstdio>     // for snprintf
 #include <ctime>      // for localtime, time
 #include <utility>    // for move
@@ -31,6 +33,7 @@
 #include "control/Control.h"            // for Control
 #include "control/settings/Settings.h"  // for Settings
 #include "gui/CanvasFrame.h"            // for drawCurrentPage
+#include "util/PathUtil.h"              // for getDataPath
 #include "util/i18n.h"                  // for _, FS, _F
 
 // ===========================================================================================
@@ -120,7 +123,132 @@ auto VideoRecorder::resolveFfmpeg(const Settings& settings) -> fs::path {
 }
 
 // ===========================================================================================
-// 2. Command line
+// 2. Microphone processing
+// ===========================================================================================
+
+namespace {
+
+/**
+ * A number as ffmpeg's option parser wants to read it: a plain decimal point, whatever the locale
+ * would otherwise print, and no trailing noise. std::to_string would write "-0,600000" in a French
+ * locale, and ffmpeg would refuse it.
+ */
+auto filterNumber(double value) -> std::string {
+    std::array<char, G_ASCII_DTOSTR_BUF_SIZE> buffer{};
+    g_ascii_formatd(buffer.data(), static_cast<gint>(buffer.size()), "%.4g", value);
+    return buffer.data();
+}
+
+/// True when a gain is close enough to 0 dB that writing the band would be a no-op.
+auto isFlat(double dB) -> bool { return std::abs(dB) < 0.05; }
+
+}  // namespace
+
+auto AudioFilterConfig::fromSettings(const Settings& settings) -> AudioFilterConfig {
+    AudioFilterConfig filters;
+
+    filters.compressor = settings.isMicCompressorEnabled();
+    filters.compressorThreshold = settings.getMicCompressorThreshold();
+    filters.compressorRatio = settings.getMicCompressorRatio();
+    filters.compressorAttack = settings.getMicCompressorAttack();
+    filters.compressorRelease = settings.getMicCompressorRelease();
+    filters.compressorOutputGain = settings.getMicCompressorOutputGain();
+
+    filters.equalizer = settings.isMicEqualizerEnabled();
+    filters.eqLow = settings.getMicEqualizerLow();
+    filters.eqMid = settings.getMicEqualizerMid();
+    filters.eqHigh = settings.getMicEqualizerHigh();
+
+    filters.noiseSuppression = settings.getMicNoiseSuppression();
+    filters.rnnoiseModel = settings.getMicRnnoiseModel();
+
+    return filters;
+}
+
+auto AudioFilterConfig::resolveRnnoiseModel() const -> fs::path {
+    if (!rnnoiseModel.empty() && fs::exists(fs::path(rnnoiseModel))) {
+        return fs::path(rnnoiseModel);
+    }
+
+    const fs::path bundled = Util::getDataPath() / "resources" / "rnnoise" / "sh.rnnn";
+    if (fs::exists(bundled)) {
+        return bundled;
+    }
+
+    return {};
+}
+
+auto AudioFilterConfig::buildFilterChain() const -> std::string {
+    std::vector<std::string> stages;
+
+    if (compressor && compressorRatio > 1.0) {
+        // ffmpeg reads a "dB" suffix as an amplitude, so the threshold goes in exactly as it is
+        // written in the dialog. The output gain does not go through acompressor's own makeup,
+        // which cannot be negative; a separate volume stage covers the whole range.
+        std::string stage = "acompressor=threshold=" + filterNumber(compressorThreshold) +
+                            "dB:ratio=" + filterNumber(compressorRatio) +
+                            ":attack=" + filterNumber(compressorAttack) +
+                            ":release=" + filterNumber(compressorRelease);
+        stages.push_back(std::move(stage));
+    }
+    if (compressor && !isFlat(compressorOutputGain)) {
+        stages.push_back("volume=" + filterNumber(compressorOutputGain) + "dB");
+    }
+
+    if (equalizer) {
+        // A shelf below the low crossover, a shelf above the high one, and a broad peak spanning
+        // what is left. Not the same filter shapes as a three-band equalizer built from a single
+        // crossover pair, but the same three controls doing the same three things to the same
+        // three parts of the spectrum, which is what a setting copied across is meant to mean.
+        if (!isFlat(eqLow)) {
+            stages.push_back("bass=g=" + filterNumber(eqLow) + ":f=" + filterNumber(LOW_CROSSOVER) +
+                             ":width_type=q:w=0.707");
+        }
+        if (!isFlat(eqMid)) {
+            const double centre = std::sqrt(LOW_CROSSOVER * HIGH_CROSSOVER);
+            stages.push_back("equalizer=f=" + filterNumber(centre) + ":width_type=o:w=2.5:g=" + filterNumber(eqMid));
+        }
+        if (!isFlat(eqHigh)) {
+            stages.push_back("treble=g=" + filterNumber(eqHigh) + ":f=" + filterNumber(HIGH_CROSSOVER) +
+                             ":width_type=q:w=0.707");
+        }
+    }
+
+    if (noiseSuppression == "rnnoise") {
+        // The recurrent network wants a trained model, and unlike the rest of the chain it cannot
+        // work without one. Rather than record with no suppression at all when the file is missing,
+        // fall through to the spectral denoiser, which needs nothing.
+        if (const fs::path model = resolveRnnoiseModel(); !model.empty()) {
+            std::string path = model.string();
+            // ffmpeg's filtergraph parser splits on these, so a model somewhere like
+            // "/Users/me/My Models:2024/x.rnnn" has to arrive escaped.
+            std::string escaped;
+            for (char c: path) {
+                if (c == '\\' || c == ':' || c == ',' || c == '\'' || c == '[' || c == ']') {
+                    escaped += '\\';
+                }
+                escaped += c;
+            }
+            stages.push_back("arnndn=m=" + escaped);
+        } else {
+            stages.emplace_back("afftdn=nf=-25");
+        }
+    } else if (noiseSuppression == "fft") {
+        stages.emplace_back("afftdn=nf=-25");
+    }
+
+    std::string chain;
+    for (const std::string& stage: stages) {
+        if (!chain.empty()) {
+            chain += ",";
+        }
+        chain += stage;
+    }
+    return chain;
+}
+
+// ===========================================================================================
+// 3. Command line
 // ===========================================================================================
 
 auto VideoRecorderConfig::fromSettings(const Settings& settings) -> VideoRecorderConfig {
@@ -145,6 +273,7 @@ auto VideoRecorderConfig::fromSettings(const Settings& settings) -> VideoRecorde
     config.withAudio = false;
 #endif
     config.audioChannels = 2;
+    config.audioFilters = AudioFilterConfig::fromSettings(settings);
 
     return config;
 }
@@ -200,6 +329,10 @@ auto VideoRecorderConfig::buildCommandLine(const fs::path& file, int audioFd) co
     argv.emplace_back(std::to_string(std::max(1, videoBitrate)) + "k");
 
     if (audioFd >= 0) {
+        if (const std::string chain = audioFilters.buildFilterChain(); !chain.empty()) {
+            argv.emplace_back("-af");
+            argv.emplace_back(chain);
+        }
         argv.emplace_back("-c:a");
         argv.emplace_back(audioCodec.empty() ? "aac" : audioCodec);
         argv.emplace_back("-b:a");
@@ -248,7 +381,7 @@ auto VideoRecorderConfig::describeCommandLine(const fs::path& file) const -> std
 }
 
 // ===========================================================================================
-// 3. Starting and stopping
+// 4. Starting and stopping
 // ===========================================================================================
 
 VideoRecorder::VideoRecorder(Control& control): control(control) {}
@@ -581,7 +714,7 @@ void VideoRecorder::setUnexpectedExitCallback(std::function<void(const std::stri
 }
 
 // ===========================================================================================
-// 4. Frames
+// 5. Frames
 // ===========================================================================================
 
 auto VideoRecorder::onRenderTick(gpointer data) -> gboolean {
@@ -694,7 +827,7 @@ void VideoRecorder::writerLoop() {
 }
 
 // ===========================================================================================
-// 5. Output paths
+// 6. Output paths
 // ===========================================================================================
 
 auto VideoRecorder::buildOutputPath(std::string* error) const -> fs::path {

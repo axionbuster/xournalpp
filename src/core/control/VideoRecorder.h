@@ -54,6 +54,62 @@ class PipedAudioSource;
 #endif
 
 /**
+ * What happens to the microphone between the capture and the encoder.
+ *
+ * The three things a streaming setup always puts in front of a microphone, in the order OBS runs
+ * them, with OBS's names and OBS's units -- dB for levels, milliseconds for times -- so that a
+ * number copied from one to the other means the same thing. ffmpeg does the work, as part of the
+ * same process that is already encoding, which costs nothing measurable next to the video.
+ *
+ * Only the recording is processed. The separate .ogg is written by the audio recorder from the
+ * unprocessed capture, so a stroke played back years from now sounds like the room did.
+ */
+struct AudioFilterConfig {
+    bool compressor = true;
+    double compressorThreshold = -18.0;  ///< dB
+    double compressorRatio = 20.0;       ///< n:1
+    double compressorAttack = 6.0;       ///< ms
+    double compressorRelease = 60.0;     ///< ms
+    double compressorOutputGain = 6.0;   ///< dB, applied after compressing
+
+    bool equalizer = true;
+    double eqLow = 0.0;    ///< dB below LOW_CROSSOVER
+    double eqMid = -0.6;   ///< dB between the crossovers
+    double eqHigh = 3.6;   ///< dB above HIGH_CROSSOVER
+
+    /// "off", "rnnoise" or "fft". Anything else is read as "off".
+    std::string noiseSuppression = "rnnoise";
+
+    /// An .rnnn model for RNNoise; empty means the one shipped with the application.
+    std::string rnnoiseModel;
+
+    /**
+     * Where the equalizer's bands meet, in Hz. Fixed rather than configurable, because they are
+     * fixed in the three-band equalizer this mirrors, and because a band gain means nothing to
+     * anyone unless the band it applies to is the one they are used to.
+     */
+    static constexpr double LOW_CROSSOVER = 880.0;
+    static constexpr double HIGH_CROSSOVER = 5000.0;
+
+    static AudioFilterConfig fromSettings(const Settings& settings);
+
+    /**
+     * The chain as one ffmpeg -af argument, or empty when nothing is switched on.
+     *
+     * Bands at 0 dB and a compressor at 1:1 are left out rather than written as no-ops, so the
+     * command shown in the preferences says what is actually being done to the sound.
+     */
+    std::string buildFilterChain() const;
+
+    /**
+     * The .rnnn file RNNoise would load: the configured one if it names a readable file, otherwise
+     * the one in the application's resources. Empty when neither exists, which is the one case
+     * where the chain quietly falls back to the FFT denoiser.
+     */
+    fs::path resolveRnnoiseModel() const;
+};
+
+/**
  * Everything the ffmpeg command line is built from, lifted out of Settings so that the preferences
  * dialog can also build one out of unsaved widget values and show the exact command a recording
  * would run.
@@ -78,6 +134,9 @@ struct VideoRecorderConfig {
     bool withAudio = true;
     int audioSampleRate = 44100;
     int audioChannels = 2;
+
+    /// What happens to the microphone on its way into the file.
+    AudioFilterConfig audioFilters;
 
     static VideoRecorderConfig fromSettings(const Settings& settings);
 

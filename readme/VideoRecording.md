@@ -35,6 +35,43 @@ Sound comes from the same PortAudio capture the audio recorder has always used, 
 floats to a second pipe on descriptor 3. The device, sample rate and gain are the ones under
 **Preferences → Audio Recording**; there is no second device list.
 
+## What happens to the microphone
+
+A bare microphone into a recording sounds like a bare microphone. Three stages sit between the
+capture and the encoder, the same three a streaming setup always puts there, in the same order:
+
+| Stage | Default | What it is for |
+| --- | --- | --- |
+| Compressor | 20:1 above −18 dB, 6 ms attack, 60 ms release, +6 dB out | Holds a voice at one level for an hour without anyone riding a fader |
+| Equalizer | −0.6 dB mid, +3.6 dB high | Out of the muddy middle, up where consonants live |
+| Noise suppression | RNNoise | Fan, hum, keyboard, room |
+
+They are named and scaled the way OBS names and scales them -- dB for levels and gains,
+milliseconds for times, a plain number for the ratio -- so a value copied from one to the other
+means the same thing in both. ffmpeg applies them, inside the process that is already encoding, so
+they cost nothing worth measuring next to the video.
+
+Only the recording is processed. The separate `.ogg`, if you write one, keeps the untouched
+capture, so a stroke played back years from now still sounds like the room did.
+
+Two details are worth knowing before changing anything:
+
+- **The equalizer's bands meet at 880 Hz and 5 kHz**, and those crossovers are not configurable --
+  a band gain means nothing to anyone unless the band is the one they are used to. The low and high
+  controls are shelves and the middle one is a broad peak spanning what is left; that is not
+  identical to a three-band equalizer built from one crossover pair, but it is the same three
+  controls doing the same three things to the same three parts of the spectrum.
+- **RNNoise needs a trained model, and cannot work without one.** `sh.rnnn` ships in the
+  application's resources and is found automatically; `micRnnoiseModel` in `settings.xml` points at
+  a different one. With no model at all the chain drops to the spectral denoiser rather than
+  recording with no suppression, and the preferences page says so rather than leaving it to be
+  discovered afterwards.
+
+Stages that would do nothing are left out of the command line rather than written as no-ops, so
+the command shown in the preferences says what is actually being done to the sound. RNNoise runs at
+48 kHz, so ffmpeg resamples on the way in and the finished audio track is 48 kHz whatever the
+capture rate was.
+
 Frames are drawn on a timer, unconditionally, rather than when something signals that the canvas
 changed. Redrawing only on a signal is tempting -- most of a lecture is a still page -- but a
 change can reach the page by routes that do not send one (an undo, a background change, a layer
@@ -87,12 +124,30 @@ happens to be.
 The shading is drawn by `ProjectorWindow` and by nothing else. It cannot reach the recording, which
 is drawn separately and never sees anything the projector does.
 
+## The buttons
+
+Recording is started and stopped from the toolbar's audio group, and both buttons there mean what
+they say during a recording:
+
+- **Record** turns red and counts, `0:07`, `12:40`, `1:07:24` past an hour. A toggle's pressed-in
+  look is easy to miss across a wide toolbar, and nothing else in the window says how far into a
+  take you are -- which are exactly the two mistakes a recording invites: talking for ten minutes
+  to a recorder that was never started, and leaving one running long after the lecture ended. The
+  counter reads the recording's own start time on every tick rather than counting ticks, so a
+  missed timeout shows as a skipped second instead of accumulating into a wrong duration.
+- **Stop** ends a recording, not only a playback. It sits next to the record button, so during a
+  recording that is plainly what a user reaching for it means; playback and recording never overlap,
+  so there is nothing to choose between. It is insensitive when there is nothing to stop, and it now
+  appears in a build with no audio support at all, because there is still a video to stop.
+
 ## Where things live
 
 | File | Role |
 | --- | --- |
-| `src/core/control/VideoRecorder.{h,cpp}` | ffmpeg process, command line, frame pump |
+| `src/core/control/VideoRecorder.{h,cpp}` | ffmpeg process, command line, frame pump, `AudioFilterConfig` |
 | `src/core/audio/PipedAudioSource.{h,cpp}` | the microphone, as raw samples on a pipe |
+| `src/core/gui/toolbarMenubar/RecordButton.{h,cpp}` | the red, counting record button |
+| `resources/rnnoise/sh.rnnn` | the RNNoise model, shipped in the bundle |
 | `src/core/gui/CanvasFrame.{h,cpp}` | the one function that draws "the page, alone" |
 | `src/core/gui/ProjectorWindow.{h,cpp}` | the projector window and the caption guide |
 | `src/core/gui/dialog/RecordingSettingsPanel.{h,cpp}` | the preferences page |

@@ -244,6 +244,28 @@ void Settings::loadDefault() {
     this->videoRecordingContainer = "mov";
     this->videoRecordingExtraArguments = "";
 
+    // Microphone processing defaults, in the same order the chain runs. A bare microphone into a
+    // recording sounds like a bare microphone; these are the three things a streaming setup always
+    // puts in front of one, at the settings a close-mic'd voice wants.
+    this->micCompressorEnabled = true;
+    this->micCompressorThreshold = -18.0;
+    // Well past the 4:1 that counts as gentle: a lecture is an hour of one voice at an unwatched
+    // level, and holding it flat matters more than preserving dynamics nobody is listening for.
+    this->micCompressorRatio = 20.0;
+    this->micCompressorAttack = 6.0;
+    this->micCompressorRelease = 60.0;
+    this->micCompressorOutputGain = 6.0;
+
+    this->micEqualizerEnabled = true;
+    this->micEqualizerLow = 0.0;
+    // A shade out of the muddy middle and a lift where consonants live, which is what makes speech
+    // easier to follow rather than merely louder.
+    this->micEqualizerMid = -0.6;
+    this->micEqualizerHigh = 3.6;
+
+    this->micNoiseSuppression = "rnnoise";
+    this->micRnnoiseModel = "";
+
     this->projectorPosX = 0;
     this->projectorPosY = 0;
     this->projectorWidth = 960;
@@ -732,6 +754,32 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->videoRecordingContainer = reinterpret_cast<const char*>(value);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingExtraArguments")) == 0) {
         this->videoRecordingExtraArguments = reinterpret_cast<const char*>(value);
+
+        // Microphone processing
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorEnabled")) == 0) {
+        this->micCompressorEnabled = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorThreshold")) == 0) {
+        this->micCompressorThreshold = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorRatio")) == 0) {
+        this->micCompressorRatio = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorAttack")) == 0) {
+        this->micCompressorAttack = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorRelease")) == 0) {
+        this->micCompressorRelease = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorOutputGain")) == 0) {
+        this->micCompressorOutputGain = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micEqualizerEnabled")) == 0) {
+        this->micEqualizerEnabled = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micEqualizerLow")) == 0) {
+        this->micEqualizerLow = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micEqualizerMid")) == 0) {
+        this->micEqualizerMid = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micEqualizerHigh")) == 0) {
+        this->micEqualizerHigh = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micNoiseSuppression")) == 0) {
+        this->micNoiseSuppression = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micRnnoiseModel")) == 0) {
+        this->micRnnoiseModel = reinterpret_cast<const char*>(value);
 
         // Projector window
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorPosX")) == 0) {
@@ -1304,6 +1352,25 @@ void Settings::save() {
     SAVE_STRING_PROP(videoRecordingContainer);
     SAVE_STRING_PROP(videoRecordingExtraArguments);
     ATTACH_COMMENT("Extra ffmpeg arguments, appended last so they override everything else.");
+
+    SAVE_BOOL_PROP(micCompressorEnabled);
+    SAVE_DOUBLE_PROP(micCompressorThreshold);
+    ATTACH_COMMENT("Compressor threshold in dB.");
+    SAVE_DOUBLE_PROP(micCompressorRatio);
+    SAVE_DOUBLE_PROP(micCompressorAttack);
+    ATTACH_COMMENT("Compressor attack and release in milliseconds.");
+    SAVE_DOUBLE_PROP(micCompressorRelease);
+    SAVE_DOUBLE_PROP(micCompressorOutputGain);
+    ATTACH_COMMENT("Gain applied after compressing, in dB.");
+    SAVE_BOOL_PROP(micEqualizerEnabled);
+    SAVE_DOUBLE_PROP(micEqualizerLow);
+    SAVE_DOUBLE_PROP(micEqualizerMid);
+    SAVE_DOUBLE_PROP(micEqualizerHigh);
+    ATTACH_COMMENT("Equalizer band gains in dB.");
+    SAVE_STRING_PROP(micNoiseSuppression);
+    ATTACH_COMMENT("One of off, rnnoise or fft.");
+    SAVE_STRING_PROP(micRnnoiseModel);
+    ATTACH_COMMENT("An .rnnn model file; empty means the one shipped with the application.");
 
     SAVE_INT_PROP(projectorPosX);
     SAVE_INT_PROP(projectorPosY);
@@ -2639,6 +2706,72 @@ void Settings::setVideoRecordingExtraArguments(string value) {
         return;
     }
     this->videoRecordingExtraArguments = std::move(value);
+    save();
+}
+
+/*
+ * Microphone processing
+ *
+ * Written out with a macro because there are fourteen of these and they are all the same setter:
+ * ignore a write that changes nothing, otherwise store it and save. Spelling each one out adds
+ * ninety lines in which the only thing that varies is a name.
+ */
+
+#define MIC_ACCESSORS(Name, member, type)                       \
+    auto Settings::get##Name() const->type { return member; }   \
+    void Settings::set##Name(type value) {                      \
+        if (member == value) {                                  \
+            return;                                             \
+        }                                                       \
+        member = value;                                         \
+        save();                                                 \
+    }
+
+auto Settings::isMicCompressorEnabled() const -> bool { return this->micCompressorEnabled; }
+void Settings::setMicCompressorEnabled(bool value) {
+    if (this->micCompressorEnabled == value) {
+        return;
+    }
+    this->micCompressorEnabled = value;
+    save();
+}
+
+MIC_ACCESSORS(MicCompressorThreshold, this->micCompressorThreshold, double)
+MIC_ACCESSORS(MicCompressorRatio, this->micCompressorRatio, double)
+MIC_ACCESSORS(MicCompressorAttack, this->micCompressorAttack, double)
+MIC_ACCESSORS(MicCompressorRelease, this->micCompressorRelease, double)
+MIC_ACCESSORS(MicCompressorOutputGain, this->micCompressorOutputGain, double)
+
+auto Settings::isMicEqualizerEnabled() const -> bool { return this->micEqualizerEnabled; }
+void Settings::setMicEqualizerEnabled(bool value) {
+    if (this->micEqualizerEnabled == value) {
+        return;
+    }
+    this->micEqualizerEnabled = value;
+    save();
+}
+
+MIC_ACCESSORS(MicEqualizerLow, this->micEqualizerLow, double)
+MIC_ACCESSORS(MicEqualizerMid, this->micEqualizerMid, double)
+MIC_ACCESSORS(MicEqualizerHigh, this->micEqualizerHigh, double)
+
+#undef MIC_ACCESSORS
+
+auto Settings::getMicNoiseSuppression() const -> string const& { return this->micNoiseSuppression; }
+void Settings::setMicNoiseSuppression(string value) {
+    if (this->micNoiseSuppression == value) {
+        return;
+    }
+    this->micNoiseSuppression = std::move(value);
+    save();
+}
+
+auto Settings::getMicRnnoiseModel() const -> string const& { return this->micRnnoiseModel; }
+void Settings::setMicRnnoiseModel(string value) {
+    if (this->micRnnoiseModel == value) {
+        return;
+    }
+    this->micRnnoiseModel = std::move(value);
     save();
 }
 

@@ -34,6 +34,7 @@
 #include "FontButton.h"                  // for FontButton
 #include "PluginPlaceholderLabel.h"      // for PluginPlaceholderLabel
 #include "PluginToolButton.h"            // for PluginToolButton
+#include "RecordButton.h"                // for RecordButton
 #include "SeparatorItem.h"
 #include "SpacerItem.h"
 #include "StylePopoverFactory.h"     // for ToolButtonWithStylePopover
@@ -111,15 +112,17 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                 std::string name = dataItem.getName();
 
                 // The playback controls genuinely need the audio system. The record button no
-                // longer does: with audio unavailable it still starts a screen capture, which is
-                // run by a separate ffmpeg process.
+                // longer does: with audio unavailable it still records a video, which is encoded
+                // by a separate ffmpeg process. Neither does Stop, which ends a recording as
+                // readily as it ends a playback.
+                const bool recordingPossible = this->control->getAudioController() != nullptr ||
+                                               this->control->getSettings()->isVideoRecordingEnabled();
                 if (!this->control->getAudioController() &&
                     (name == "AUDIO_SEEK_BACKWARDS" || name == "AUDIO_PAUSE_PLAYBACK" ||
-                     name == "AUDIO_STOP_PLAYBACK" || name == "AUDIO_SEEK_FORWARDS" || name == "PLAY_OBJECT")) {
+                     name == "AUDIO_SEEK_FORWARDS" || name == "PLAY_OBJECT")) {
                     continue;
                 }
-                if (!this->control->getAudioController() && name == "AUDIO_RECORDING" &&
-                    !this->control->getSettings()->isVideoRecordingEnabled()) {
+                if (!recordingPossible && (name == "AUDIO_RECORDING" || name == "AUDIO_STOP_PLAYBACK")) {
                     continue;
                 }
 
@@ -458,8 +461,8 @@ void ToolMenuHandler::initToolItems() {
     emplaceStockItemWithTarget("FORMAT_ALIGN_RIGHT", Cat::TOOLS, Action::TEXT_ALIGNMENT, TextAlignment::RIGHT,
                                "format-justify-right", _("Align text to the right"));
 
-    emplaceCustomItemTgl("AUDIO_RECORDING", Cat::AUDIO, Action::AUDIO_RECORD, "audio-record",
-                         _("Start / Stop Recording"));
+    emplaceItem<RecordButton>("AUDIO_RECORDING", Cat::AUDIO, Action::AUDIO_RECORD, iconName("audio-record"),
+                              _("Start / Stop Recording"), control);
     // Kept in the same category as the recording controls because that is where people look for
     // it, even though opening and closing it has no effect on a recording.
     emplaceStockItemTgl("PROJECTOR", Cat::AUDIO, Action::PROJECTOR_WINDOW, "video-display-symbolic",

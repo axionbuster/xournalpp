@@ -909,6 +909,15 @@ template <>
 struct ActionProperties<Action::AUDIO_STOP_PLAYBACK> {
     static constexpr bool initiallyEnabled(Control*) { return false; }
     static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
+        // The stop button sits next to the record button, so during a recording that is plainly
+        // what it is for -- and a button that does nothing at the one moment the user reaches for
+        // it is worse than no button. Playback and recording never overlap, so there is nothing to
+        // choose between here.
+        if (ctrl->isRecording()) {
+            ctrl->stopRecording();
+            ctrl->getActionDatabase()->setActionState(Action::AUDIO_RECORD, false);
+            return;
+        }
 #ifdef ENABLE_AUDIO
         if (!ctrl->audioController) {
             g_warning("Audio has been disabled");

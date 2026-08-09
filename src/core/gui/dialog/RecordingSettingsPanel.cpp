@@ -69,6 +69,33 @@ auto makeSpin(int min, int max, int step) -> GtkWidget* {
     return spin;
 }
 
+auto makeDecimalSpin(double min, double max, double step, int digits) -> GtkWidget* {
+    GtkWidget* spin = gtk_spin_button_new_with_range(min, max, step);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(spin), digits);
+    gtk_widget_set_halign(spin, GTK_ALIGN_START);
+    return spin;
+}
+
+/// A spin button followed by its unit, so the number in the box is never ambiguous.
+auto withUnit(GtkWidget* spin, const char* unit) -> GtkWidget* {
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(box), spin, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), gtk_label_new(unit), FALSE, FALSE, 0);
+    return box;
+}
+
+/**
+ * Tie a group of settings to the checkbox that switches them on, so the ones that currently do
+ * nothing look like it.
+ */
+void bindSensitivity(GtkWidget* toggle, GtkWidget* dependent) {
+    gtk_widget_set_sensitive(dependent, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle)));
+    g_signal_connect(toggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer dependent) {
+                         gtk_widget_set_sensitive(GTK_WIDGET(dependent), gtk_toggle_button_get_active(button));
+                     }),
+                     dependent);
+}
+
 /// A horizontal pair of spin buttons with a separator, for "width x height" style settings.
 auto makePair(GtkWidget* first, const char* separator, GtkWidget* second) -> GtkWidget* {
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -208,6 +235,88 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
         gtk_box_pack_start(GTK_BOX(column), frame, FALSE, TRUE, 0);
     }
 
+    // --- what happens to the microphone --------------------------------------------------
+    {
+        GtkWidget* content = nullptr;
+        GtkWidget* frame = makeFrame(_("Microphone processing"), &content);
+
+        gtk_box_pack_start(
+                GTK_BOX(content),
+                makeHint(_("What happens to the microphone on its way into the video: the same three stages, in the "
+                           "same order and to the same scales, that a streaming setup puts in front of one. Only the "
+                           "video is processed -- the separate audio file, if you write one, keeps the untouched "
+                           "capture.")),
+                FALSE, TRUE, 0);
+
+        this->cbCompressor = gtk_check_button_new_with_label(_("Compressor"));
+        gtk_widget_set_tooltip_text(this->cbCompressor,
+                                    _("Holds a voice at a steady level: anything louder than the threshold is turned "
+                                      "down by the ratio, and the output gain makes up the difference."));
+        gtk_box_pack_start(GTK_BOX(content), this->cbCompressor, FALSE, TRUE, 0);
+
+        this->gridCompressor = makeGrid();
+        gtk_widget_set_margin_start(this->gridCompressor, 22);
+        int row = 0;
+
+        this->spCompressorRatio = makeDecimalSpin(1.0, 32.0, 0.5, 1);
+        addRow(this->gridCompressor, row++, _("Ratio:"), withUnit(this->spCompressorRatio, _("to 1")));
+
+        this->spCompressorThreshold = makeDecimalSpin(-60.0, 0.0, 0.5, 1);
+        addRow(this->gridCompressor, row++, _("Threshold:"), withUnit(this->spCompressorThreshold, _("dB")));
+
+        this->spCompressorAttack = makeDecimalSpin(0.0, 500.0, 1.0, 0);
+        addRow(this->gridCompressor, row++, _("Attack:"), withUnit(this->spCompressorAttack, _("ms")));
+
+        this->spCompressorRelease = makeDecimalSpin(0.0, 2000.0, 5.0, 0);
+        addRow(this->gridCompressor, row++, _("Release:"), withUnit(this->spCompressorRelease, _("ms")));
+
+        this->spCompressorOutputGain = makeDecimalSpin(-32.0, 32.0, 0.5, 1);
+        addRow(this->gridCompressor, row++, _("Output gain:"), withUnit(this->spCompressorOutputGain, _("dB")));
+
+        gtk_box_pack_start(GTK_BOX(content), this->gridCompressor, FALSE, TRUE, 0);
+        bindSensitivity(this->cbCompressor, this->gridCompressor);
+
+        this->cbEqualizer = gtk_check_button_new_with_label(_("Equalizer"));
+        gtk_widget_set_tooltip_text(this->cbEqualizer,
+                                    _("Three bands, meeting at 880 Hz and 5 kHz. Cutting the middle a little and "
+                                      "lifting the top is what makes speech easier to follow rather than just louder."));
+        gtk_box_pack_start(GTK_BOX(content), this->cbEqualizer, FALSE, TRUE, 0);
+
+        this->gridEqualizer = makeGrid();
+        gtk_widget_set_margin_start(this->gridEqualizer, 22);
+        row = 0;
+
+        this->spEqualizerLow = makeDecimalSpin(-20.0, 20.0, 0.1, 1);
+        addRow(this->gridEqualizer, row++, _("Low (below 880 Hz):"), withUnit(this->spEqualizerLow, _("dB")));
+
+        this->spEqualizerMid = makeDecimalSpin(-20.0, 20.0, 0.1, 1);
+        addRow(this->gridEqualizer, row++, _("Mid (880 Hz - 5 kHz):"), withUnit(this->spEqualizerMid, _("dB")));
+
+        this->spEqualizerHigh = makeDecimalSpin(-20.0, 20.0, 0.1, 1);
+        addRow(this->gridEqualizer, row++, _("High (above 5 kHz):"), withUnit(this->spEqualizerHigh, _("dB")));
+
+        gtk_box_pack_start(GTK_BOX(content), this->gridEqualizer, FALSE, TRUE, 0);
+        bindSensitivity(this->cbEqualizer, this->gridEqualizer);
+
+        GtkWidget* grid = makeGrid();
+        this->cbNoiseSuppression = gtk_combo_box_text_new();
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbNoiseSuppression), "off", _("Off"));
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbNoiseSuppression), "rnnoise",
+                                  _("RNNoise (recurrent network)"));
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbNoiseSuppression), "fft", _("Spectral (FFT)"));
+        gtk_widget_set_tooltip_text(this->cbNoiseSuppression,
+                                    _("RNNoise was trained to tell speech from everything else, and takes out fan "
+                                      "noise, hum and keyboard clatter without the underwater sound that spectral "
+                                      "subtraction leaves behind."));
+        addRow(grid, 0, _("Noise suppression:"), this->cbNoiseSuppression);
+        gtk_box_pack_start(GTK_BOX(content), grid, FALSE, TRUE, 0);
+
+        this->lbNoiseSuppressionStatus = makeHint("");
+        gtk_box_pack_start(GTK_BOX(content), this->lbNoiseSuppressionStatus, FALSE, TRUE, 0);
+
+        gtk_box_pack_start(GTK_BOX(column), frame, FALSE, TRUE, 0);
+    }
+
     // --- the projector -------------------------------------------------------------------
     {
         GtkWidget* content = nullptr;
@@ -263,14 +372,21 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
     // not what was saved. Rebuilding it reads widgets and formats a string -- no process is
     // spawned -- so doing it on every keystroke is cheap enough.
     auto onChanged = G_CALLBACK(+[](GtkWidget*, RecordingSettingsPanel* self) { self->updatePreview(); });
-    for (GtkWidget* widget: {this->spWidth, this->spHeight, this->spFps, this->spVideoBitrate, this->spAudioBitrate}) {
+    for (GtkWidget* widget: {this->spWidth, this->spHeight, this->spFps, this->spVideoBitrate, this->spAudioBitrate,
+                             this->spCompressorThreshold, this->spCompressorRatio, this->spCompressorAttack,
+                             this->spCompressorRelease, this->spCompressorOutputGain, this->spEqualizerLow,
+                             this->spEqualizerMid, this->spEqualizerHigh}) {
         g_signal_connect(widget, "value-changed", onChanged, this);
     }
     for (GtkWidget* widget: {this->enVideoCodec, this->enAudioCodec, this->enExtraArguments, this->enFfmpegPath}) {
         g_signal_connect(widget, "changed", onChanged, this);
     }
-    g_signal_connect(this->cbContainer, "changed", onChanged, this);
-    g_signal_connect(this->cbWithAudio, "toggled", onChanged, this);
+    for (GtkWidget* widget: {this->cbContainer, this->cbNoiseSuppression}) {
+        g_signal_connect(widget, "changed", onChanged, this);
+    }
+    for (GtkWidget* widget: {this->cbWithAudio, this->cbCompressor, this->cbEqualizer}) {
+        g_signal_connect(widget, "toggled", onChanged, this);
+    }
 
     gtk_widget_show_all(scrolled);
     this->panel = scrolled;
@@ -298,6 +414,22 @@ auto RecordingSettingsPanel::readConfig() const -> VideoRecorderConfig {
         config.container = id;
     }
 
+    AudioFilterConfig& filters = config.audioFilters;
+    filters.compressor = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbCompressor));
+    filters.compressorThreshold = gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spCompressorThreshold));
+    filters.compressorRatio = gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spCompressorRatio));
+    filters.compressorAttack = gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spCompressorAttack));
+    filters.compressorRelease = gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spCompressorRelease));
+    filters.compressorOutputGain = gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spCompressorOutputGain));
+    filters.equalizer = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbEqualizer));
+    filters.eqLow = gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spEqualizerLow));
+    filters.eqMid = gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spEqualizerMid));
+    filters.eqHigh = gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spEqualizerHigh));
+    if (const gchar* id = gtk_combo_box_get_active_id(GTK_COMBO_BOX(this->cbNoiseSuppression)); id != nullptr) {
+        filters.noiseSuppression = id;
+    }
+    filters.rnnoiseModel = this->rnnoiseModel;
+
     return config;
 }
 
@@ -314,6 +446,21 @@ void RecordingSettingsPanel::updatePreview() {
     }
 
     const VideoRecorderConfig config = readConfig();
+
+    // Say which model RNNoise found, because it is the one setting on this page that can silently
+    // turn into something else: with no model file there is no network to run, and the chain drops
+    // to the spectral denoiser rather than recording with no suppression at all.
+    if (config.audioFilters.noiseSuppression != "rnnoise") {
+        gtk_label_set_text(GTK_LABEL(this->lbNoiseSuppressionStatus), "");
+    } else if (const fs::path model = config.audioFilters.resolveRnnoiseModel(); model.empty()) {
+        gtk_label_set_markup(GTK_LABEL(this->lbNoiseSuppressionStatus),
+                             _("<i>No RNNoise model was found, so the spectral denoiser is being used instead.</i>"));
+    } else {
+        gchar* status = g_markup_printf_escaped("<i>Model: %s</i>", model.string().c_str());
+        gtk_label_set_markup(GTK_LABEL(this->lbNoiseSuppressionStatus), status);
+        g_free(status);
+    }
+
     const std::string command = config.describeCommandLine("recording." + config.container);
     gchar* markup = g_markup_printf_escaped("<tt><small>%s</small></tt>", command.c_str());
     gtk_label_set_markup(GTK_LABEL(this->lbPreview), markup);
@@ -354,6 +501,24 @@ void RecordingSettingsPanel::load(const Settings& settings) {
         gtk_combo_box_set_active(GTK_COMBO_BOX(this->cbContainer), 0);
     }
 
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbCompressor), settings.isMicCompressorEnabled());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spCompressorThreshold), settings.getMicCompressorThreshold());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spCompressorRatio), settings.getMicCompressorRatio());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spCompressorAttack), settings.getMicCompressorAttack());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spCompressorRelease), settings.getMicCompressorRelease());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spCompressorOutputGain), settings.getMicCompressorOutputGain());
+
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbEqualizer), settings.isMicEqualizerEnabled());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spEqualizerLow), settings.getMicEqualizerLow());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spEqualizerMid), settings.getMicEqualizerMid());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spEqualizerHigh), settings.getMicEqualizerHigh());
+
+    this->rnnoiseModel = settings.getMicRnnoiseModel();
+    if (!gtk_combo_box_set_active_id(GTK_COMBO_BOX(this->cbNoiseSuppression),
+                                     settings.getMicNoiseSuppression().c_str())) {
+        gtk_combo_box_set_active_id(GTK_COMBO_BOX(this->cbNoiseSuppression), "off");
+    }
+
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbProjectorKeepAbove), settings.isProjectorKeepAbove());
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbProjectorOpenAtStartup),
                                  settings.isProjectorOpenAtStartup());
@@ -389,6 +554,20 @@ void RecordingSettingsPanel::save(Settings& settings) {
     settings.setVideoRecordingAudioCodec(config.audioCodec);
     settings.setVideoRecordingContainer(config.container);
     settings.setVideoRecordingExtraArguments(config.extraArguments);
+
+    const AudioFilterConfig& filters = config.audioFilters;
+    settings.setMicCompressorEnabled(filters.compressor);
+    settings.setMicCompressorThreshold(filters.compressorThreshold);
+    settings.setMicCompressorRatio(filters.compressorRatio);
+    settings.setMicCompressorAttack(filters.compressorAttack);
+    settings.setMicCompressorRelease(filters.compressorRelease);
+    settings.setMicCompressorOutputGain(filters.compressorOutputGain);
+    settings.setMicEqualizerEnabled(filters.equalizer);
+    settings.setMicEqualizerLow(filters.eqLow);
+    settings.setMicEqualizerMid(filters.eqMid);
+    settings.setMicEqualizerHigh(filters.eqHigh);
+    settings.setMicNoiseSuppression(filters.noiseSuppression);
+    settings.setMicRnnoiseModel(filters.rnnoiseModel);
 
     settings.setProjectorKeepAbove(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbProjectorKeepAbove)));
     settings.setProjectorOpenAtStartup(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbProjectorOpenAtStartup)));

@@ -156,6 +156,7 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
         }
 #endif
         this->actionDB->setActionState(Action::AUDIO_RECORD, false);
+        recordingStateChanged(false);
         XojMsgBox::showErrorToUser(getGtkWindow(), message);
     });
 
@@ -2744,6 +2745,17 @@ void Control::setProjectorVisible(bool visible) {
  * start.
  */
 
+/**
+ * Bookkeeping shared by every way a recording can begin or end: the clock the toolbar button
+ * counts from, and the stop button, which is only reachable while there is something to stop.
+ */
+void Control::recordingStateChanged(bool recording) {
+    this->recordingStartTime = recording ? g_get_monotonic_time() : 0;
+    this->actionDB->enableAction(Action::AUDIO_STOP_PLAYBACK, recording);
+}
+
+auto Control::getRecordingStartTime() const -> gint64 { return this->recordingStartTime; }
+
 auto Control::startRecording(std::string* error) -> bool {
     if (isRecording()) {
         return false;
@@ -2791,9 +2803,13 @@ auto Control::startRecording(std::string* error) -> bool {
             }
             return false;
         }
+        recordingStateChanged(true);
         return true;
     }
 
+    if (audioStarted) {
+        recordingStateChanged(true);
+    }
     return audioStarted;
 }
 
@@ -2806,6 +2822,7 @@ auto Control::stopRecording() -> bool {
         this->audioController->stopRecording();
     }
 #endif
+    recordingStateChanged(false);
     return true;
 }
 

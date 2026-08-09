@@ -535,6 +535,55 @@ public:
     void setVideoRecordingExtraArguments(std::string arguments);
 
     // ---------------------------------------------------------------------------------------
+    // Microphone processing
+    //
+    // The chain a streaming setup puts between a microphone and a recording: compressor,
+    // equalizer, noise suppression. Named and scaled the way OBS names and scales them, so a
+    // setting copied from one to the other means the same thing. Applied by ffmpeg on its way
+    // into the video, in that order, and never to the separate .ogg -- see AudioFilterConfig.
+    // ---------------------------------------------------------------------------------------
+
+    bool isMicCompressorEnabled() const;
+    void setMicCompressorEnabled(bool enabled);
+
+    /// Level above which the compressor starts working, in dB.
+    double getMicCompressorThreshold() const;
+    void setMicCompressorThreshold(double dB);
+
+    /// How much quieter than the input a signal above the threshold gets, as "n:1".
+    double getMicCompressorRatio() const;
+    void setMicCompressorRatio(double ratio);
+
+    /// Attack and release, in milliseconds.
+    double getMicCompressorAttack() const;
+    void setMicCompressorAttack(double ms);
+    double getMicCompressorRelease() const;
+    void setMicCompressorRelease(double ms);
+
+    /// Gain applied after compressing, in dB, to make up for what the compressor took away.
+    double getMicCompressorOutputGain() const;
+    void setMicCompressorOutputGain(double dB);
+
+    bool isMicEqualizerEnabled() const;
+    void setMicEqualizerEnabled(bool enabled);
+
+    /// Gains of the three bands, in dB. The crossovers are fixed -- see AudioFilterConfig.
+    double getMicEqualizerLow() const;
+    void setMicEqualizerLow(double dB);
+    double getMicEqualizerMid() const;
+    void setMicEqualizerMid(double dB);
+    double getMicEqualizerHigh() const;
+    void setMicEqualizerHigh(double dB);
+
+    /// One of "off", "rnnoise" or "fft"; anything else is read as "off".
+    std::string const& getMicNoiseSuppression() const;
+    void setMicNoiseSuppression(std::string method);
+
+    /// An .rnnn model for the RNNoise method. Empty means the one shipped with the application.
+    std::string const& getMicRnnoiseModel() const;
+    void setMicRnnoiseModel(std::string path);
+
+    // ---------------------------------------------------------------------------------------
     // Projector window
     // ---------------------------------------------------------------------------------------
 
@@ -1274,6 +1323,25 @@ private:
     std::string videoRecordingAudioCodec;
     std::string videoRecordingContainer;
     std::string videoRecordingExtraArguments;
+
+    /**
+     * Microphone processing. Units are OBS's: dB for levels and gains, milliseconds for times,
+     * a plain number for the compression ratio.
+     */
+    bool micCompressorEnabled{};
+    double micCompressorThreshold{};
+    double micCompressorRatio{};
+    double micCompressorAttack{};
+    double micCompressorRelease{};
+    double micCompressorOutputGain{};
+
+    bool micEqualizerEnabled{};
+    double micEqualizerLow{};
+    double micEqualizerMid{};
+    double micEqualizerHigh{};
+
+    std::string micNoiseSuppression;
+    std::string micRnnoiseModel;
 
     /**
      * Projector window placement, stored the same way as the main window's: an offset from the
