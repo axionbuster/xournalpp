@@ -53,6 +53,12 @@ ProjectorWindow::ProjectorWindow(Control* control): control(control) {
     g_signal_connect(this->drawingArea, "draw", G_CALLBACK(&ProjectorWindow::onDraw), this);
     g_signal_connect(this->window, "delete-event", G_CALLBACK(&ProjectorWindow::onDeleteEvent), this);
 
+    // Realized here, well before it is ever shown, purely so that the native window exists in time
+    // to be told it is not allowed to become a tab. Realizing creates that window; it does not put
+    // anything on screen.
+    gtk_widget_realize(this->window);
+    applyNativeWindowTabbing();
+
     this->registerListener(control);
     applySettings();
 }
@@ -83,6 +89,35 @@ void ProjectorWindow::applySettings() {
 
     applyAspectRatioHint();
     queueRedraw();
+}
+
+void ProjectorWindow::applyNativeWindowTabbing() {
+#ifdef GDK_WINDOWING_QUARTZ
+    // macOS merges a newly opened window into the frontmost window's tab bar rather than giving it
+    // a window of its own, and the factory setting for when it does that is "in full screen" -- so
+    // an application restored into presentation mode swallows the projector as a tab the moment it
+    // opens. A tab is the one shape this window must never take: it exists to be a second, floating
+    // view of the page, and as a tab it is neither second nor floating, it just hides the canvas.
+    //
+    // This has to be set before the window is first ordered in, which is why the window is realized
+    // in the constructor: a window that has already joined a tab group does not leave it because
+    // the mode changed afterwards.
+    GdkWindow* gdkWindow = gtk_widget_get_window(this->window);
+    if (gdkWindow == nullptr) {
+        return;
+    }
+
+    void* nsWindow = gdk_quartz_window_get_nswindow(gdkWindow);
+    if (nsWindow == nullptr) {
+        return;
+    }
+
+    constexpr long NS_WINDOW_TABBING_MODE_DISALLOWED = 2;
+
+    using SetTabbingModeFn = void (*)(void*, SEL, long);
+    reinterpret_cast<SetTabbingModeFn>(objc_msgSend)(nsWindow, sel_registerName("setTabbingMode:"),
+                                                     NS_WINDOW_TABBING_MODE_DISALLOWED);
+#endif
 }
 
 void ProjectorWindow::applyNativeWindowLevel(bool keepAbove) {
@@ -179,6 +214,15 @@ void ProjectorWindow::saveGeometry() {
 
     GdkWindow* gdkWindow = gtk_widget_get_window(this->window);
     if (gdkWindow == nullptr) {
+        return;
+    }
+
+    // A maximized or full-screen window is the size of the screen, and that is not a size anything
+    // should reopen at -- restoring it would mean the window could never be small again, since
+    // every close would write the screen size back. Keeping the last ordinary geometry is what
+    // "where it was" is supposed to mean.
+    const GdkWindowState state = gdk_window_get_state(gdkWindow);
+    if ((state & (GDK_WINDOW_STATE_FULLSCREEN | GDK_WINDOW_STATE_MAXIMIZED)) != 0) {
         return;
     }
 

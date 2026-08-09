@@ -124,7 +124,15 @@ If the remembered monitor is not connected, the projector opens at the default p
 than off-screen, and a remembered position is clamped onto the work area so a window saved from a
 larger display still comes back reachable by its title bar.
 
-Two things in that path were wrong and are worth not reintroducing:
+On macOS the projector also refuses to be a tab. The system merges a newly opened window into the
+frontmost window's tab bar, and the factory setting for when it does so is "in full screen" -- so an
+application restored into presentation mode swallows the projector the instant it opens, and what
+should have been a second floating view is a tab that merely hides the canvas. `NSWindow`'s tabbing
+mode is set to *disallowed* before the window is ever ordered in, which is why it is realized in the
+constructor rather than on first show: a window that has already joined a tab group does not leave
+it because the mode changed afterwards.
+
+Three things in that path were wrong and are worth not reintroducing:
 
 - **Save and restore must use the same rectangle.** Measuring against `gdk_monitor_get_geometry`
   and restoring against `gdk_monitor_get_workarea` differs by the height of the menu bar on macOS,
@@ -133,6 +141,9 @@ Two things in that path were wrong and are worth not reintroducing:
   to leave a window where it is, and the quartz backend does not honour it** -- it moves the
   content area and reports the frame. `moveTo` therefore asks, reads back where the window actually
   went, and corrects by the difference, which is zero on a backend that got it right.
+- **A maximized or full-screen window's size must not be written down.** It is the size of the
+  screen, and restoring it would mean the projector could never be small again: every close would
+  write the screen size back over the size it should reopen at.
 
 ## The caption safe area
 

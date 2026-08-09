@@ -75,6 +75,12 @@ public:
     void pageSelected(size_t page) override;
 
 private:
+    /**
+     * Forbid macOS from merging this window into another window's tab bar. Does nothing anywhere
+     * else. Must run before the window is first shown.
+     */
+    void applyNativeWindowTabbing();
+
     /// Put the window back where it was, if the monitor it was on is still connected.
     void restoreGeometry();
 
