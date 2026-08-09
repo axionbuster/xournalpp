@@ -131,6 +131,15 @@ void checkForEmergencySave(Control* control) {
         return;
     }
 
+    // Automated runs launch the application over and over and are killed rather than quit, so
+    // every launch after the first opens onto this dialog and waits for a human. XOPP_NO_RECOVERY
+    // leaves the file exactly where it is and simply does not ask -- the recovery is still there
+    // for a real launch, which is the only kind that should be answering the question.
+    if (g_getenv("XOPP_NO_RECOVERY") != nullptr) {
+        g_message("Recovery file found; not asking about it (XOPP_NO_RECOVERY is set): %s", file.u8string().c_str());
+        return;
+    }
+
     const std::string msg = _("Xournal++ crashed last time. Would you like to restore the last edited file?");
     enum { DELETE_FILE = 1, RESTORE_FILE };
     XojMsgBox::askQuestion(

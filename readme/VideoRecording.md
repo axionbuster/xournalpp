@@ -127,10 +127,15 @@ changing pages is the only way the view moves -- so a scrollbar cannot do its jo
 mode; what it turned out to do instead is blink. GTK fades its overlay scrollbar indicator in on
 **every pointer motion over the window** -- there is no proximity test, and pens are not excluded
 -- and the timer that hides it again runs out mid-stroke during sustained writing, so the
-indicator flickered in and out over the page the whole time the pen was down. Hiding the bar is
-not enough on its own, either: the indicator machinery runs off the scrolled window's own idea of
-whether a scrollbar is warranted, so the scrollbar policy is set to NEVER along with it. Outside
-presentation mode the scrollbars behave exactly as configured in the preferences.
+indicator flickered in and out over the page the whole time the pen was down.
+
+Hiding the scrollbar widgets is not enough on its own, because the indicator is separate machinery
+that runs whether or not the bars are visible. What silences it is turning **overlay scrolling**
+off. Setting the scrollbar *policy* to NEVER also silences it and must not be used: a
+`GtkScrolledWindow` with policy NEVER stops clipping and hands its child the child's full natural
+height, which here meant a 2780-pixel canvas inside a 948-pixel window -- the page pinned to the
+top, the rest of the window empty, and nothing scrollable. Outside presentation mode the
+scrollbars behave exactly as configured in the preferences.
 
 Both pipes are handed to ffmpeg by GLib's own descriptor mapping, not by a child-setup function
 with `G_SPAWN_LEAVE_DESCRIPTORS_OPEN`. That flag also leaves the *writing* ends open inside the
@@ -245,6 +250,13 @@ they say during a recording:
 | `src/core/gui/ProjectorWindow.{h,cpp}` | the projector window and the caption guide |
 | `src/core/gui/dialog/RecordingSettingsPanel.{h,cpp}` | the preferences page |
 | `src/core/control/Control.cpp` | `startRecording` / `stopRecording`, projector lifetime |
+
+## Testing
+
+`XOPP_NO_RECOVERY=1` suppresses the "Xournal++ crashed last time" prompt at startup. An automated
+run launches the application repeatedly and kills it rather than quitting, so every launch after
+the first otherwise opens onto a dialog waiting for a human. The recovery file itself is left
+untouched -- a real launch still offers it, which is the only kind that should be answering.
 
 Closing the projector never touches a recording in progress, and reopening it is always safe: the
 recording is drawn from the document, not from that window.
