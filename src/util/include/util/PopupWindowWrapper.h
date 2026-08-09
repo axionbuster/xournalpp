@@ -16,6 +16,7 @@
 #include <gtk/gtk.h>
 
 #include "util/Assert.h"
+#include "util/GtkUtil.h"
 #include "util/gtk4_helper.h"
 
 namespace xoj::popup {
@@ -41,6 +42,10 @@ public:
     void show(GtkWindow* parent) {
         gtk_window_set_transient_for(popup->getWindow(), parent);
         gtk_window_set_modal(popup->getWindow(), true);
+
+        // A popup opened over a full-screen parent must not become full screen itself; closing one
+        // that has crashes the platform's window backend. See setFullScreenAuxiliary.
+        xoj::util::gtk::setFullScreenAuxiliary(popup->getWindow());
 
 #if GTK_MAJOR_VERSION == 3
         gtk_window_set_position(popup->getWindow(), GTK_WIN_POS_CENTER_ON_PARENT);

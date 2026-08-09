@@ -57,8 +57,44 @@
 #undef Point
 #endif
 
+#ifdef GDK_WINDOWING_QUARTZ
+#include <objc/message.h>  // for objc_msgSend
+#include <objc/runtime.h>  // for objc_getClass, sel_registerName
+#endif
+
 using std::string;
 
+
+/**
+ * Stop the application from taking the keyboard when it starts. For automated testing only.
+ *
+ * Refusing focus at the window level is not enough on macOS: the application activates itself as it
+ * launches, becomes the frontmost application, and whatever the person at the keyboard was typing
+ * goes into the document under test. Demoting it to an accessory application is what actually
+ * settles it -- an accessory cannot become the active application at all, so keystrokes continue to
+ * go wherever they were going. It also drops the Dock icon and the menu bar, which is the point:
+ * this window is nobody's foreground application, it is a fixture.
+ */
+static void refuseApplicationActivation() {
+#ifdef GDK_WINDOWING_QUARTZ
+    Class nsApplication = objc_getClass("NSApplication");
+    if (nsApplication == nullptr) {
+        return;
+    }
+
+    using SharedFn = void* (*)(Class, SEL);
+    void* app = reinterpret_cast<SharedFn>(objc_msgSend)(nsApplication, sel_registerName("sharedApplication"));
+    if (app == nullptr) {
+        return;
+    }
+
+    constexpr long NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY = 1;
+
+    using SetPolicyFn = BOOL (*)(void*, SEL, long);
+    reinterpret_cast<SetPolicyFn>(objc_msgSend)(app, sel_registerName("setActivationPolicy:"),
+                                                NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY);
+#endif
+}
 
 static void themeCallback(GObject*, GParamSpec*, gpointer data) { static_cast<MainWindow*>(data)->updateColorscheme(); }
 
@@ -121,6 +157,17 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     };
     g_signal_connect(this->window, "key-press-event", G_CALLBACK(keyPropagate), nullptr);
     g_signal_connect(this->window, "key-release-event", G_CALLBACK(keyPropagate), nullptr);
+
+    // An automated run opens a window on a desk somebody is working at. Without this it takes the
+    // keyboard as it maps, and whatever was being typed at that moment lands in the document under
+    // test -- which corrupts the run and, worse, the typing. Refusing focus outright is the only
+    // reliable version of "do not interrupt": a window that will not accept focus cannot receive a
+    // keystroke however it is raised.
+    if (g_getenv("XOPP_NO_FOCUS") != nullptr) {
+        gtk_window_set_focus_on_map(GTK_WINDOW(this->window), FALSE);
+        gtk_window_set_accept_focus(GTK_WINDOW(this->window), FALSE);
+        refuseApplicationActivation();
+    }
 
     updateScrollbarSidebarPosition();
 

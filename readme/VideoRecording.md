@@ -293,5 +293,37 @@ run launches the application repeatedly and kills it rather than quitting, so ev
 the first otherwise opens onto a dialog waiting for a human. The recovery file itself is left
 untouched -- a real launch still offers it, which is the only kind that should be answering.
 
+`XOPP_NO_FOCUS=1` stops a test instance from taking the keyboard. It refuses focus at the window
+level and, on macOS, demotes the process to an accessory application, which cannot become the
+active one at all -- so whatever is being typed at the moment a test window opens keeps going where
+it was going. Use it on every automated launch.
+
+The one thing it cannot do is keep the screen. Presentation mode is macOS full screen, and a
+full-screen window takes over its display by definition, so a test that has to be in presentation
+mode will be seen. Leave `presentationMode` off in the scratch configuration unless the behaviour
+under test is presentation mode itself.
+
 Closing the projector never touches a recording in progress, and reopening it is always safe: the
 recording is drawn from the document, not from that window.
+
+## A dialog must never be full screen
+
+Opening the preferences over a full-screen window used to leave the application a black rectangle
+that answered nothing, as soon as the dialog was dismissed.
+
+macOS offers a window opened over a full-screen one the whole space, and an ordinary resizable
+GtkWindow qualifies -- so the dialog came up full screen in its own right, measured 1920x1080 with
+the full-screen bit set. Closing it made AppKit run the exit-full-screen transition, and that
+transition re-frames a window GTK has already started destroying: a segmentation fault inside
+`-[GdkQuartzView setFrame:]`. The application did not vanish, because the crash handler catches the
+signal and writes an emergency save, so what was left on screen was the window it no longer had a
+main loop for.
+
+`xoj::util::gtk::setFullScreenAuxiliary` marks a popup as an auxiliary occupant of the space
+instead. It is called from `PopupWindowWrapper::show`, which every popup in the application goes
+through, so the fix is in one place. The dialog is now a floating 1056x740 window over the page --
+what a preferences window should look like anyway -- and there is no transition left to run when it
+closes.
+
+Presentation mode is full screen, and this fork restores presentation mode at startup, so this was
+reachable from the first thing a lecture does.
