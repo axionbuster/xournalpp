@@ -327,3 +327,11 @@ closes.
 
 Presentation mode is full screen, and this fork restores presentation mode at startup, so this was
 reachable from the first thing a lecture does.
+
+This is not a fork-only problem. Upstream has it filed twice and open, from both ends of the same
+mechanism -- [#6412](https://github.com/xournalpp/xournalpp/issues/6412), "Preferences Crash on Exit
+in Fullscreen", and [#6631](https://github.com/xournalpp/xournalpp/issues/6631), which reports the
+black unresponsive window rather than the crash under it. Neither names a cause and neither
+references the other. Inkscape reports the same GTK-quartz behaviour without the crash, in
+[inbox#7277](https://gitlab.com/inkscape/inbox/-/issues/7277): dialogs come up full screen when the
+main window is. The fix here is small and self-contained, so it is worth offering upstream.
