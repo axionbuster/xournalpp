@@ -487,7 +487,8 @@ auto VideoRecorder::start(const fs::path& file, std::string* error) -> bool {
     this->renderCount = 0;
     this->hasPending = false;
     this->pending.clear();
-    this->last.clear();
+    this->spare.clear();
+    this->frameCache.invalidate();
 
     this->stderrChannel = g_io_channel_unix_new(childStderr);
     g_io_channel_set_encoding(this->stderrChannel, nullptr, nullptr);
@@ -616,8 +617,9 @@ void VideoRecorder::teardown() {
     }
     this->pending.clear();
     this->pending.shrink_to_fit();
-    this->last.clear();
-    this->last.shrink_to_fit();
+    this->spare.clear();
+    this->spare.shrink_to_fit();
+    this->frameCache.invalidate();
 }
 
 void VideoRecorder::onChildExited(GPid pid, gint status, gpointer data) {
@@ -742,7 +744,7 @@ void VideoRecorder::renderFrame() {
     cairo_t* cr = cairo_create(this->surface);
     xoj::canvas::drawCurrentPage(&this->control, cr, cairo_image_surface_get_width(this->surface),
                                  cairo_image_surface_get_height(this->surface),
-                                 this->control.getSettings()->getProjectorBackgroundColor());
+                                 this->control.getSettings()->getProjectorBackgroundColor(), &this->frameCache);
     cairo_destroy(cr);
     cairo_surface_flush(this->surface);
 
@@ -755,7 +757,17 @@ void VideoRecorder::renderFrame() {
     }
 
     const size_t rowBytes = static_cast<size_t>(frameWidth) * 4;
-    std::vector<unsigned char> frame(rowBytes * static_cast<size_t>(frameHeight));
+
+    // A buffer nobody is using, if there is one. resize() then costs nothing: it is already the
+    // right size, so no memory is asked for and none is zeroed before being overwritten anyway.
+    std::vector<unsigned char> frame;
+    {
+        std::lock_guard<std::mutex> lock(this->frameMutex);
+        frame = std::move(this->spare);
+        this->spare.clear();
+    }
+    frame.resize(rowBytes * static_cast<size_t>(frameHeight));
+
     // Copied row by row rather than in one go: cairo pads each row out to its own alignment, and
     // rawvideo expects rows packed end to end.
     for (int y = 0; y < frameHeight; y++) {
@@ -765,6 +777,11 @@ void VideoRecorder::renderFrame() {
 
     {
         std::lock_guard<std::mutex> lock(this->frameMutex);
+        // A frame the writer never got to is not lost work worth keeping -- this one supersedes it
+        // -- but its memory is exactly what the next frame wants.
+        if (this->hasPending) {
+            this->spare = std::move(this->pending);
+        }
         this->pending = std::move(frame);
         this->hasPending = true;
     }
@@ -778,8 +795,11 @@ void VideoRecorder::writerLoop() {
 
     long long emitted = 0;
 
+    // The frame being sent, owned by this thread alone from the moment it is swapped out of
+    // `pending` -- so it can go down the pipe with no lock held and nothing else touching it.
+    std::vector<unsigned char> frame;
+
     while (true) {
-        std::vector<unsigned char> frame;
         {
             std::unique_lock<std::mutex> lock(this->frameMutex);
             // Wait either for the moment this frame is due or for a fresh one to arrive, whichever
@@ -793,10 +813,12 @@ void VideoRecorder::writerLoop() {
                 return;
             }
             if (this->hasPending) {
-                this->last = std::move(this->pending);
+                // Swapped, not copied: the buffer this thread has finished with goes back for the
+                // UI thread to draw the next frame into.
+                std::swap(frame, this->pending);
                 this->hasPending = false;
+                this->spare = std::move(this->pending);
             }
-            frame = this->last;
         }
 
         if (frame.empty()) {

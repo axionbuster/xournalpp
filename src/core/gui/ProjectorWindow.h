@@ -21,6 +21,7 @@
 
 #include <gtk/gtk.h>  // for GtkWidget, GtkWindow
 
+#include "gui/CanvasFrame.h"         // for FrameCache
 #include "model/DocumentListener.h"  // for DocumentListener
 #include "model/PageRef.h"           // for PageRef
 
@@ -98,6 +99,11 @@ private:
 
     void queueRedraw();
 
+    /// Start and stop the clock that turns "something changed" into an actual repaint.
+    void startRedrawClock();
+    void stopRedrawClock();
+
+    static gboolean onRedrawTick(gpointer data);
 
     static gboolean onDraw(GtkWidget* widget, cairo_t* cr, gpointer data);
     static gboolean onDeleteEvent(GtkWidget* widget, GdkEvent* event, gpointer data);
@@ -121,6 +127,24 @@ private:
 
     /// Tracks GTK's own idea of visibility, so hide() can save geometry exactly once.
     bool visible = false;
+
+    /**
+     * The redraw clock, running only while the window is on screen.
+     *
+     * Repainting straight from every notification means repainting once per motion event, which on
+     * a 120 Hz tablet is twice as often as anyone can see and each time costs a full page. The
+     * clock collects those notifications and repaints at a rate a viewer can actually perceive.
+     */
+    guint redrawTimer = 0;
+
+    /// Something has changed since the last repaint was asked for.
+    bool needsRedraw = true;
+
+    /// When a repaint was last asked for, so one happens now and then regardless.
+    gint64 lastRedrawQueued = 0;
+
+    /// The page as it was last drawn. See xoj::canvas::FrameCache.
+    xoj::canvas::FrameCache frameCache;
 
     /**
      * The page the last frame drew. Kept so that repaint notifications -- which arrive while the

@@ -72,11 +72,32 @@ the command shown in the preferences says what is actually being done to the sou
 48 kHz, so ffmpeg resamples on the way in and the finished audio track is 48 kHz whatever the
 capture rate was.
 
-Frames are drawn on a timer, unconditionally, rather than when something signals that the canvas
-changed. Redrawing only on a signal is tempting -- most of a lecture is a still page -- but a
-change can reach the page by routes that do not send one (an undo, a background change, a layer
-being hidden), and a recording that silently stops following the page is worse than one that costs
-a few percent of a core. Drawing a frame measures around 1.5 ms for a plain page at 1080p.
+## What a frame costs
+
+A frame is emitted sixty times a second, and drawing a page of real lecture notes at 1080p takes
+**37 ms** -- more than twice a whole core's worth of work per second of recording, taken from the
+UI thread, which is the thread collecting the pen input. Left that way the application crawls
+exactly while someone is writing, and the recording looks fine afterwards, because the frames were
+all produced: the cost lands on the person at the keyboard, not on the file.
+
+So a page is drawn once and the picture kept. The kept picture holds the page's settled content;
+ink still under the pen is an overlay and is drawn afresh on every frame, which is what makes
+writing appear as it is written. `Control::getCanvasRevision()` says when the settled content has
+moved -- a stroke finished, an undo, a background swapped, a layer hidden -- and only then is the
+page drawn again. On the same page the cost falls to **0.55 ms**, which is 3% of a core rather than
+226%.
+
+Any such scheme has to answer what happens to a change nobody reports, because a recording that
+silently stops following the page is a worse failure than a slow one. Two things answer it. Every
+route a change is known to take says so, including the ones that reach the page without a repaint
+ever passing through `RepaintHandler` -- an undo takes exactly that route, which is why the
+projector used to show one only after the next stroke shook it loose. And whatever anybody reports,
+a page is redrawn if its picture is more than a quarter of a second old, so an unreported change
+costs a few frames of staleness rather than the rest of the recording.
+
+The projector repaints on a clock of its own for the same reason, at thirty frames a second rather
+than once per motion event: a tablet sends motion far faster than anyone can see, and each one used
+to mean another full page.
 
 Both pipes are handed to ffmpeg by GLib's own descriptor mapping, not by a child-setup function
 with `G_SPAWN_LEAVE_DESCRIPTORS_OPEN`. That flag also leaves the *writing* ends open inside the
@@ -183,7 +204,7 @@ they say during a recording:
 | `src/core/audio/PipedAudioSource.{h,cpp}` | the microphone, as raw samples on a pipe |
 | `src/core/gui/toolbarMenubar/RecordButton.{h,cpp}` | the red, counting record button |
 | `resources/rnnoise/sh.rnnn` | the RNNoise model, shipped in the bundle |
-| `src/core/gui/CanvasFrame.{h,cpp}` | the one function that draws "the page, alone" |
+| `src/core/gui/CanvasFrame.{h,cpp}` | the one function that draws "the page, alone", and its frame cache |
 | `src/core/gui/ProjectorWindow.{h,cpp}` | the projector window and the caption guide |
 | `src/core/gui/dialog/RecordingSettingsPanel.{h,cpp}` | the preferences page |
 | `src/core/control/Control.cpp` | `startRecording` / `stopRecording`, projector lifetime |

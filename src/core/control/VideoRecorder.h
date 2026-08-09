@@ -41,6 +41,8 @@
 #include <cairo.h>
 #include <glib.h>  // for GPid, guint
 
+#include "gui/CanvasFrame.h"  // for FrameCache
+
 #include "config-features.h"  // for ENABLE_AUDIO
 #include "filesystem.h"       // for path
 
@@ -242,14 +244,23 @@ private:
     /// The surface the UI thread draws into, at the output resolution.
     cairo_surface_t* surface = nullptr;
 
+    /// The page as it was last drawn, so an unchanged page is not re-rendered sixty times a second.
+    xoj::canvas::FrameCache frameCache;
+
     /**
-     * Handoff between the UI thread and the writer. `pending` is a fully packed frame waiting to
-     * be written; `last` is the one most recently written, re-sent when nothing has changed.
+     * Handoff between the UI thread and the writer. `pending` is a fully packed frame waiting to be
+     * collected; `spare` is a buffer neither side needs any more. The frame being written lives on
+     * the writer's own stack, so it can be sent down the pipe without the lock held -- a pipe write
+     * blocks whenever ffmpeg is briefly busy, and blocking the UI thread on that would be felt.
+     *
+     * Buffers are swapped rather than allocated per frame. A 1080p frame is eight megabytes, and
+     * asking for eight fresh megabytes sixty times a second costs the UI thread more in page faults
+     * alone than drawing the frame does -- on the very thread that is meant to be following the pen.
      */
     std::mutex frameMutex;
     std::condition_variable frameReady;
     std::vector<unsigned char> pending;
-    std::vector<unsigned char> last;
+    std::vector<unsigned char> spare;
     bool hasPending = false;
 
     std::atomic<bool> stopping{false};

@@ -2763,6 +2763,12 @@ void Control::recordingStateChanged(bool recording) {
 
 auto Control::getRecordingStartTime() const -> gint64 { return this->recordingStartTime; }
 
+auto Control::getCanvasRevision() const -> std::uint64_t {
+    return this->canvasRevision.load(std::memory_order_relaxed);
+}
+
+void Control::bumpCanvasRevision() { this->canvasRevision.fetch_add(1, std::memory_order_relaxed); }
+
 auto Control::startRecording(std::string* error) -> bool {
     if (isRecording()) {
         return false;

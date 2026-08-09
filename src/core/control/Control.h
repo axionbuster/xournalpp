@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <atomic>    // for atomic
 #include <cstddef>   // for size_t
+#include <cstdint>   // for uint64_t
 #include <memory>    // for unique_ptr
 #include <optional>  // for optional
 #include <string>    // for string, allocator
@@ -357,6 +359,20 @@ public:
      */
     gint64 getRecordingStartTime() const;
 
+    /**
+     * A counter that changes whenever the settled content of a page does -- a stroke finished, an
+     * undo, a background swapped, a layer hidden -- and stays put while a stroke is merely being
+     * drawn, since ink under the pen is an overlay and not yet part of any page.
+     *
+     * This is what lets the projector and the recorder draw a page once and keep the picture: both
+     * of them redraw many times a second, and re-rendering every stroke of a full page each time is
+     * what an hour-long recording cannot afford. See xoj::canvas::FrameCache.
+     */
+    std::uint64_t getCanvasRevision() const;
+
+    /// Say that the settled content of a page has changed. Cheap; safe from any thread.
+    void bumpCanvasRevision();
+
     PageTypeHandler* getPageTypes() const;
     PageBackgroundChangeController* getPageBackgroundChangeController() const;
     LayerController* getLayerController() const;
@@ -622,6 +638,9 @@ private:
 
     /// g_get_monotonic_time() at the moment the current recording started; 0 when idle.
     gint64 recordingStartTime = 0;
+
+    /// See getCanvasRevision(). Atomic because a render job may finish on a worker thread.
+    std::atomic<std::uint64_t> canvasRevision{1};
 
     /**
      * Created the first time the projector is opened and then kept, so that closing and reopening

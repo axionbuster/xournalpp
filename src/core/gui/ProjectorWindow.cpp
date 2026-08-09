@@ -65,6 +65,7 @@ ProjectorWindow::ProjectorWindow(Control* control): control(control) {
 
 ProjectorWindow::~ProjectorWindow() {
     this->unregisterListener();
+    stopRedrawClock();
 
     if (this->window != nullptr) {
         if (this->visible) {
@@ -166,6 +167,7 @@ void ProjectorWindow::show() {
 
     gtk_widget_show_all(this->window);
     this->visible = true;
+    startRedrawClock();
 
     // After the window is on screen: gtk_window_move on an unrealized window is advisory at best,
     // and the size has to be known before the position can be clamped onto the monitor.
@@ -186,8 +188,13 @@ void ProjectorWindow::hide() {
     }
 
     saveGeometry();
+    stopRedrawClock();
     gtk_widget_hide(this->window);
     this->visible = false;
+
+    // A closed projector should cost nothing at all, and its picture of the page is several
+    // megabytes that will be out of date by the time it is opened again.
+    this->frameCache.invalidate();
 }
 
 auto ProjectorWindow::isVisible() const -> bool { return this->visible; }
@@ -357,7 +364,7 @@ void ProjectorWindow::drawPage(cairo_t* cr, int width, int height) {
     Settings* settings = control->getSettings();
 
     const auto layout = xoj::canvas::drawCurrentPage(this->control, cr, width, height,
-                                                     settings->getProjectorBackgroundColor());
+                                                     settings->getProjectorBackgroundColor(), &this->frameCache);
     // Kept so that a repaint notification can be answered without touching the document: that
     // notification arrives once per motion event, sometimes with the document lock already held.
     this->shownPage = layout.page;
@@ -399,10 +406,49 @@ void ProjectorWindow::drawSafeArea(cairo_t* cr, double x, double y, double areaW
     cairo_stroke(cr);
 }
 
-void ProjectorWindow::queueRedraw() {
-    if (this->visible && this->drawingArea != nullptr) {
-        gtk_widget_queue_draw(this->drawingArea);
+namespace {
+/// How often the projector may repaint, in milliseconds. 30 frames a second, at most.
+constexpr guint REDRAW_INTERVAL = 33;
+
+/// How long the projector may go without repainting, whatever it has been told. Microseconds.
+constexpr gint64 MAX_REDRAW_GAP = 250 * 1000;
+}  // namespace
+
+void ProjectorWindow::queueRedraw() { this->needsRedraw = true; }
+
+void ProjectorWindow::startRedrawClock() {
+    if (this->redrawTimer == 0) {
+        this->needsRedraw = true;
+        this->redrawTimer = g_timeout_add(REDRAW_INTERVAL, &ProjectorWindow::onRedrawTick, this);
     }
+}
+
+void ProjectorWindow::stopRedrawClock() {
+    if (this->redrawTimer != 0) {
+        g_source_remove(this->redrawTimer);
+        this->redrawTimer = 0;
+    }
+}
+
+auto ProjectorWindow::onRedrawTick(gpointer data) -> gboolean {
+    auto* self = static_cast<ProjectorWindow*>(data);
+    if (!self->visible || self->drawingArea == nullptr) {
+        return G_SOURCE_CONTINUE;
+    }
+
+    const gint64 now = g_get_monotonic_time();
+    // The second condition is the safety net, and it is the reason this window can be trusted as a
+    // preview: a change that reached the page by a route nobody reports -- and there are such
+    // routes, an undo used to be one -- is on screen a quarter of a second later rather than
+    // waiting for the next stroke to shake it loose. Drawing a page nobody has touched is cheap,
+    // because the picture is kept between frames.
+    if (self->needsRedraw || now - self->lastRedrawQueued >= MAX_REDRAW_GAP) {
+        self->needsRedraw = false;
+        self->lastRedrawQueued = now;
+        gtk_widget_queue_draw(self->drawingArea);
+    }
+
+    return G_SOURCE_CONTINUE;
 }
 
 // ===========================================================================================

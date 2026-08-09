@@ -853,6 +853,11 @@ auto XojPageView::onKeyReleaseEvent(const KeyEvent& event) -> bool {
 void XojPageView::rerenderPage(bool sizeChanged) {
     this->rerenderComplete = true;
     this->sizeChanged = sizeChanged;
+    // Everything that changes a page without a stroke being drawn arrives here -- an undo, a
+    // background swap, a layer hidden -- and none of it passes through RepaintHandler, because the
+    // render job repaints the widget directly when it finishes. Saying so here is what keeps the
+    // projector and the recording in step with an undo instead of a beat behind it.
+    this->xournal->getControl()->bumpCanvasRevision();
     this->xournal->getControl()->getScheduler()->addRerenderPage(this);
 }
 
@@ -867,6 +872,11 @@ void XojPageView::repaintArea(double x1, double y1, double x2, double y2) const 
 void XojPageView::flagDirtyRegion(const Range& rg) const { repaintArea(rg.minX, rg.minY, rg.maxX, rg.maxY); }
 
 void XojPageView::drawAndDeleteToolView(xoj::view::ToolView* v, const Range& rg) {
+    // A finished stroke stops being an overlay and becomes part of the page here, without any
+    // re-render being asked for -- the main view just draws it into the buffer it already has. Say
+    // so, or a cached copy of the page would keep the moment before the pen was lifted.
+    this->xournal->getControl()->bumpCanvasRevision();
+
     if (v->isViewOf(this->inputHandler.get()) || v->isViewOf(this->verticalSpace.get()) ||
         v->isViewOf(this->textEditor.get())) {
         // Draw the inputHandler's view onto the page buffer.
@@ -912,6 +922,8 @@ auto XojPageView::toWidgetCoordinates(const xoj::util::Rectangle<double>& r) con
 }
 
 void XojPageView::rerenderRect(double x, double y, double width, double height) {
+    this->xournal->getControl()->bumpCanvasRevision();
+
     if (this->rerenderComplete) {
         return;
     }
