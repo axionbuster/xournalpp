@@ -78,6 +78,9 @@ private:
     /// Put the window back where it was, if the monitor it was on is still connected.
     void restoreGeometry();
 
+    /// Move the window so that gtk_window_get_position afterwards reports exactly (@p x, @p y).
+    void moveTo(int x, int y);
+
     /// Constrain resizing to the recording's aspect ratio, or release the constraint.
     void applyAspectRatioHint();
 

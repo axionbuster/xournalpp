@@ -110,6 +110,30 @@ drawn -- needs a sound file of its own for strokes to point at. That is a second
 recording, for something you may not be using, so it is **off by default** and lives behind "Also
 write a separate audio file" in the preferences.
 
+## Where the projector opens
+
+Small, and then wherever you last left it. It starts as a 480×270 corner tile -- 16:9, so it
+matches the recording it previews from the first frame -- and from then on its own remembered size
+and position win. Position and size are written down whenever it is closed, including when the
+application quits with it still open.
+
+Both are stored relative to the origin of a monitor identified by *description* rather than by
+index, exactly as the main window is: indices are reassigned whenever a display is plugged in, so
+an index restores the projector onto the wrong panel precisely when a second display is involved.
+If the remembered monitor is not connected, the projector opens at the default placement rather
+than off-screen, and a remembered position is clamped onto the work area so a window saved from a
+larger display still comes back reachable by its title bar.
+
+Two things in that path were wrong and are worth not reintroducing:
+
+- **Save and restore must use the same rectangle.** Measuring against `gdk_monitor_get_geometry`
+  and restoring against `gdk_monitor_get_workarea` differs by the height of the menu bar on macOS,
+  and by whatever panels are present elsewhere, so the window walks by that much on every reopen.
+- **`gtk_window_get_position` is documented as returning what `gtk_window_move` needs to be given
+  to leave a window where it is, and the quartz backend does not honour it** -- it moves the
+  content area and reports the frame. `moveTo` therefore asks, reads back where the window actually
+  went, and corrects by the difference, which is zero on a backend that got it right.
+
 ## The caption safe area
 
 Burnt-in subtitles are added downstream and cover the bottom of the finished frame. The projector

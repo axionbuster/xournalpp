@@ -36,7 +36,10 @@ extern "C" void* gdk_quartz_window_get_nswindow(GdkWindow* window);
 ProjectorWindow::ProjectorWindow(Control* control): control(control) {
     this->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(this->window), _("Projector"));
-    gtk_window_set_default_size(GTK_WINDOW(this->window), 960, 540);
+    // From the remembered size, not a constant, so the window is never briefly the wrong size on
+    // the way to being the right one.
+    gtk_window_set_default_size(GTK_WINDOW(this->window), std::max(160, control->getSettings()->getProjectorWidth()),
+                                std::max(90, control->getSettings()->getProjectorHeight()));
 
     // Not transient for the main window on purpose. A transient window is tied to its parent's
     // stacking and workspace, which is exactly wrong for something meant to sit on a second
@@ -185,8 +188,11 @@ void ProjectorWindow::saveGeometry() {
         return;
     }
 
-    GdkRectangle monitorGeometry{};
-    gdk_monitor_get_geometry(monitor, &monitorGeometry);
+    // The work area, not the full monitor rectangle, and restoreGeometry has to use the same one:
+    // they differ by the menu bar on macOS and by panels elsewhere, so measuring against one and
+    // restoring against the other moves the window by that difference on every reopen.
+    GdkRectangle workarea{};
+    gdk_monitor_get_workarea(monitor, &workarea);
 
     gint x = 0;
     gint y = 0;
@@ -195,10 +201,10 @@ void ProjectorWindow::saveGeometry() {
     gtk_window_get_position(GTK_WINDOW(this->window), &x, &y);
     gtk_window_get_size(GTK_WINDOW(this->window), &width, &height);
 
-    // Stored relative to the monitor's origin, and with the monitor identified by description
+    // Stored relative to the work area's origin, and with the monitor identified by description
     // rather than index, for the same reason the main window is: indices are reassigned whenever a
     // display is plugged in, so an index restores onto the wrong panel exactly when it matters.
-    control->getSettings()->setProjectorGeometry(x - monitorGeometry.x, y - monitorGeometry.y, width, height,
+    control->getSettings()->setProjectorGeometry(x - workarea.x, y - workarea.y, width, height,
                                                  Settings::describeMonitor(monitor));
 }
 
@@ -246,7 +252,32 @@ void ProjectorWindow::restoreGeometry() {
     const int x = std::clamp(workarea.x + settings->getProjectorPosX(), workarea.x, maxX);
     const int y = std::clamp(workarea.y + settings->getProjectorPosY(), workarea.y, maxY);
 
-    gtk_window_move(GTK_WINDOW(this->window), x, y);
+    moveTo(x, y);
+}
+
+void ProjectorWindow::moveTo(int x, int y) {
+    // gtk_window_get_position is documented as returning exactly what gtk_window_move needs to be
+    // given to leave a window where it is. The quartz backend does not honour that -- it moves the
+    // content area and reports the frame -- so a projector restored on macOS lands one title bar
+    // away from where it was closed, every time, in the same direction. Rather than hard-code a
+    // decoration offset for one backend, ask, look at where the window actually went, and correct
+    // by the difference. On a backend that got it right the difference is zero and this does
+    // nothing at all.
+    int askedX = x;
+    int askedY = y;
+    gtk_window_move(GTK_WINDOW(this->window), askedX, askedY);
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        gint actualX = 0;
+        gint actualY = 0;
+        gtk_window_get_position(GTK_WINDOW(this->window), &actualX, &actualY);
+        if (actualX == x && actualY == y) {
+            return;
+        }
+        askedX += x - actualX;
+        askedY += y - actualY;
+        gtk_window_move(GTK_WINDOW(this->window), askedX, askedY);
+    }
 }
 
 void ProjectorWindow::applyAspectRatioHint() {

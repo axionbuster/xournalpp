@@ -268,8 +268,13 @@ void Settings::loadDefault() {
 
     this->projectorPosX = 0;
     this->projectorPosY = 0;
-    this->projectorWidth = 960;
-    this->projectorHeight = 540;
+    // Small on purpose, and only until the first time it is moved or resized, after which its own
+    // remembered size wins. A projector opening at half the screen is something to be dealt with
+    // before it is useful; one that opens as a corner tile is already out of the way, and what it
+    // is mostly used for -- checking the framing and the caption safe area -- reads fine at this
+    // size. 16:9, so it matches the recording it is previewing from the start.
+    this->projectorWidth = 480;
+    this->projectorHeight = 270;
     this->projectorMonitor = "";
     this->projectorKeepAbove = true;
     this->projectorOpenAtStartup = false;

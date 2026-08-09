@@ -196,6 +196,13 @@ Control::~Control() {
     g_source_remove(this->changeTimout);
     this->enableAutosave(false);
 
+    // Before anything below deletes the Settings. The projector writes down where it was as it
+    // goes, and a member destroyed at the end of this function -- which is when a unique_ptr member
+    // would be -- would be writing into a Settings this destructor has already freed. That is a
+    // crash on quit and, worse, a silently forgotten window position every time the projector was
+    // left open.
+    this->projectorWindow.reset();
+
     deleteLastAutosaveFile();
     this->scheduler->stop();
     this->changedPages.clear();  // can be removed, will be done by implicit destructor
