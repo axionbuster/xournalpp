@@ -41,7 +41,7 @@
 class LoadHandler;
 class GeometryToolController;
 class AudioController;
-class ScreenRecorder;
+class VideoRecorder;
 class ProjectorWindow;
 class FullscreenHandler;
 class Sidebar;
@@ -320,7 +320,7 @@ public:
     Sidebar* getSidebar() const;
     SearchBar* getSearchBar() const;
     AudioController* getAudioController() const;
-    ScreenRecorder* getScreenRecorder() const;
+    VideoRecorder* getVideoRecorder() const;
 
     /**
      * The projector window, created lazily the first time it is asked for. Never null.
@@ -607,7 +607,7 @@ private:
      * Screen capture. Always present, even in a build without audio support: it runs an external
      * ffmpeg process and shares nothing with the PortAudio pipeline.
      */
-    std::unique_ptr<ScreenRecorder> screenRecorder;
+    std::unique_ptr<VideoRecorder> videoRecorder;
 
     /**
      * Created the first time the projector is opened and then kept, so that closing and reopening

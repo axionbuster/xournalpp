@@ -2,8 +2,8 @@
 
 #include <gtk/gtk.h>  // for gtk_widget_queue_draw
 
-#include "control/Control.h"           // for Control
-#include "gui/ProjectorWindow.h"       // for ProjectorWindow
+#include "control/Control.h"            // for Control
+#include "gui/ProjectorWindow.h"        // for ProjectorWindow
 #include "gui/widgets/XournalWidget.h"  // for gtk_xournal_repaint_area
 
 #include "PageView.h"     // for XojPageView
@@ -18,6 +18,10 @@ RepaintHandler::~RepaintHandler() { this->xournal = nullptr; }
  * place that can keep the projector in step without each tool having to know the projector exists.
  * The projector is asked Control-side rather than registered here, so that it survives the
  * XournalView being rebuilt and there is no stale pointer to clear.
+ *
+ * A recording is not driven from here. It redraws on its own clock, because it has to produce a
+ * frame whether or not anything changed, and because a change can reach the page by routes that
+ * never pass through this class.
  */
 void RepaintHandler::notifyProjector(const XojPageView* view) const {
     if (this->xournal == nullptr) {
@@ -27,6 +31,7 @@ void RepaintHandler::notifyProjector(const XojPageView* view) const {
     if (control == nullptr) {
         return;
     }
+
     // peek, not get: getProjectorWindow() creates one on demand, and every repaint of every page
     // would then bring a projector into existence for a user who has never opened it.
     if (ProjectorWindow* projector = control->peekProjectorWindow(); projector != nullptr) {

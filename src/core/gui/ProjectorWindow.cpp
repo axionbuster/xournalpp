@@ -8,20 +8,14 @@
 #include "ProjectorWindow.h"
 
 #include <algorithm>     // for clamp, max, min
-#include <shared_mutex>  // for shared_lock
 #include <string>        // for string
 
-#include "control/Control.h"                     // for Control
+#include "control/Control.h"                 // for Control
 #include "control/actions/ActionDatabase.h"  // for ActionDatabase
-#include "control/settings/Settings.h"  // for Settings
-#include "gui/MainWindow.h"             // for MainWindow
-#include "gui/PageView.h"               // for XojPageView
-#include "gui/XournalView.h"            // for XournalView
-#include "model/Document.h"                      // for Document
-#include "model/XojPage.h"                       // for XojPage
-#include "util/Color.h"                 // for cairo_set_source_rgbi
-#include "util/i18n.h"                  // for _
-#include "view/DocumentView.h"          // for DocumentView
+#include "control/settings/Settings.h"       // for Settings
+#include "gui/CanvasFrame.h"                 // for drawCurrentPage, FrameLayout
+#include "model/XojPage.h"                   // for XojPage
+#include "util/i18n.h"                       // for _
 
 #ifdef GDK_WINDOWING_QUARTZ
 #include <objc/message.h>   // for objc_msgSend
@@ -260,8 +254,8 @@ void ProjectorWindow::applyAspectRatioHint() {
 
     GdkGeometry geometry{};
     if (settings->isProjectorLockAspectRatio()) {
-        const int width = std::max(1, settings->getScreenRecordingWidth());
-        const int height = std::max(1, settings->getScreenRecordingHeight());
+        const int width = std::max(1, settings->getVideoRecordingWidth());
+        const int height = std::max(1, settings->getVideoRecordingHeight());
         geometry.min_aspect = static_cast<gdouble>(width) / height;
         geometry.max_aspect = geometry.min_aspect;
         gtk_window_set_geometry_hints(GTK_WINDOW(this->window), nullptr, &geometry, GDK_HINT_ASPECT);
@@ -287,84 +281,13 @@ auto ProjectorWindow::onDraw(GtkWidget* widget, cairo_t* cr, gpointer data) -> g
 void ProjectorWindow::drawPage(cairo_t* cr, int width, int height) {
     Settings* settings = control->getSettings();
 
-    Util::cairo_set_source_rgbi(cr, settings->getProjectorBackgroundColor());
-    cairo_paint(cr);
+    const auto layout = xoj::canvas::drawCurrentPage(this->control, cr, width, height,
+                                                     settings->getProjectorBackgroundColor());
+    // Kept so that a repaint notification can be answered without touching the document: that
+    // notification arrives once per motion event, sometimes with the document lock already held.
+    this->shownPage = layout.page;
 
-    Document* doc = control->getDocument();
-    if (doc == nullptr) {
-        return;
-    }
-
-    const size_t pageNo = control->getCurrentPageNo();
-    XournalView* xournal = control->getWindow() != nullptr ? control->getWindow()->getXournal() : nullptr;
-
-    // Where the page ends up inside the window. The caption guide belongs over the picture, not
-    // over the letterbox around it, so it has to be drawn against this rather than the window.
-    double contentX = 0.0;
-    double contentY = 0.0;
-    double contentWidth = 0.0;
-    double contentHeight = 0.0;
-
-    {
-        // A SHARED lock, taken exactly once for the whole render, as RenderJob does. Document's
-        // lock is a shared_mutex and is not reentrant, so taking it twice on this thread -- once to
-        // find the page and again to draw it -- would deadlock the UI.
-        std::shared_lock<Document> lock(*doc);
-
-        if (pageNo == npos || pageNo >= doc->getPageCount()) {
-            return;
-        }
-        const PageRef page = doc->getPage(pageNo);
-        if (!page) {
-            return;
-        }
-        this->shownPage = page;
-
-        const double pageWidth = page->getWidth();
-        const double pageHeight = page->getHeight();
-        if (pageWidth <= 0 || pageHeight <= 0) {
-            return;
-        }
-
-        const double scale = std::min(width / pageWidth, height / pageHeight);
-        contentWidth = pageWidth * scale;
-        contentHeight = pageHeight * scale;
-        contentX = (width - contentWidth) / 2.0;
-        contentY = (height - contentHeight) / 2.0;
-
-        cairo_save(cr);
-        cairo_translate(cr, contentX, contentY);
-        cairo_scale(cr, scale, scale);
-        cairo_rectangle(cr, 0, 0, pageWidth, pageHeight);
-        cairo_clip(cr);
-
-        // Rendered from the model rather than copied from the main view's buffer, so the projector
-        // is sharp at its own size instead of an upscale of whatever zoom the main window happens
-        // to be at. The cost is a full page render per frame; it is only paid while the projector
-        // is open and something is actually changing, since nothing queues a redraw otherwise.
-        DocumentView documentView;
-        documentView.setMarkAudioStroke(false);
-        if (xournal != nullptr) {
-            // Without this a PDF background renders as blank white. The cache is shared with the
-            // main view rather than duplicated: it guards itself with its own mutex, and a second
-            // copy would double the memory a large PDF costs.
-            documentView.setPdfCache(xournal->getCache());
-        }
-        documentView.drawPage(page, cr, false);
-
-        // The stroke currently under the pen does not exist in the model yet -- it lives in the
-        // main view's overlays. Drawing them too is what makes the projector show ink as it is
-        // written rather than a beat behind, and it brings the selection, laser pointer and
-        // geometry tools across as well.
-        if (XojPageView* pageView = xournal != nullptr ? xournal->getViewFor(pageNo) : nullptr;
-            pageView != nullptr && pageView->getPage() == page) {
-            pageView->drawOverlays(cr);
-        }
-
-        cairo_restore(cr);
-    }
-
-    drawSafeArea(cr, contentX, contentY, contentWidth, contentHeight);
+    drawSafeArea(cr, layout.x, layout.y, layout.width, layout.height);
 }
 
 void ProjectorWindow::drawSafeArea(cairo_t* cr, double x, double y, double areaWidth, double areaHeight) {
@@ -376,7 +299,7 @@ void ProjectorWindow::drawSafeArea(cairo_t* cr, double x, double y, double areaW
     // The setting is given in lines of the finished video, because that is how a subtitling
     // requirement is written down ("keep the bottom 150 px clear"). Turning it into a fraction of
     // the frame is what makes it mean the same thing in a projector window of any size.
-    const int frameHeight = std::max(1, settings->getScreenRecordingHeight());
+    const int frameHeight = std::max(1, settings->getVideoRecordingHeight());
     const double fraction = static_cast<double>(settings->getProjectorSafeAreaHeight()) / frameHeight;
     const double bandHeight = std::min(areaHeight, areaHeight * fraction);
     if (bandHeight <= 0.0) {

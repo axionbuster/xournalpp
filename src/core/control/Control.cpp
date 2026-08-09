@@ -16,7 +16,7 @@
 #include "control/CompassController.h"                           // for Comp...
 #include "control/NavigationHistory.h"                           // for Navi...
 #include "control/RecentManager.h"                               // for Rece...
-#include "control/ScreenRecorder.h"                              // for Scre...
+#include "control/VideoRecorder.h"                               // for Vide...
 #include "control/ScrollHandler.h"                               // for Scro...
 #include "control/SetsquareController.h"                         // for Sets...
 #include "control/Tool.h"                                        // for Tool
@@ -146,8 +146,8 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
     }
 #endif
 
-    this->screenRecorder = std::make_unique<ScreenRecorder>(*this->settings);
-    this->screenRecorder->setUnexpectedExitCallback([this](const std::string& message) {
+    this->videoRecorder = std::make_unique<VideoRecorder>(*this);
+    this->videoRecorder->setUnexpectedExitCallback([this](const std::string& message) {
         // ffmpeg gave up on its own. Bring the sound recording down with it so the two halves of a
         // recording cannot drift apart, put the toolbar toggle back up, and say why.
 #ifdef ENABLE_AUDIO
@@ -2710,7 +2710,7 @@ auto Control::getSearchBar() const -> SearchBar* { return this->searchBar; }
 
 auto Control::getAudioController() const -> AudioController* { return this->audioController.get(); }
 
-auto Control::getScreenRecorder() const -> ScreenRecorder* { return this->screenRecorder.get(); }
+auto Control::getVideoRecorder() const -> VideoRecorder* { return this->videoRecorder.get(); }
 
 auto Control::peekProjectorWindow() const -> ProjectorWindow* { return this->projectorWindow.get(); }
 
@@ -2737,11 +2737,11 @@ void Control::setProjectorVisible(bool visible) {
 /*
  * Recording
  * ---------------------------------------------------------------------------------------------
- * A recording is up to two things at once: the sound file that strokes carry timestamps into, and
- * a screen capture written by ffmpeg. Which of them a press of the record button means is a
- * preference, so it is decided here rather than in the action, and either part failing fails the
- * whole thing -- a recording that is quietly missing half of what was asked for is worse than one
- * that did not start.
+ * A recording is up to two things at once: the video of the canvas, and the sound file that strokes
+ * carry timestamps into. Which of them a press of the record button means is a preference, so it is
+ * decided here rather than in the action, and either part failing fails the whole thing -- a
+ * recording that is quietly missing half of what was asked for is worse than one that did not
+ * start.
  */
 
 auto Control::startRecording(std::string* error) -> bool {
@@ -2749,14 +2749,14 @@ auto Control::startRecording(std::string* error) -> bool {
         return false;
     }
 
-    const bool wantVideo = this->settings->isScreenRecordingEnabled();
+    const bool wantVideo = this->settings->isVideoRecordingEnabled();
     // Without the video there is nothing else a recording could be, so the sound file is always
     // written in that case, whatever the "keep the audio file" preference says.
-    const bool wantAudio = !wantVideo || this->settings->isScreenRecordingKeepAudioFile();
+    const bool wantAudioFile = !wantVideo || this->settings->isVideoRecordingKeepAudioFile();
 
     bool audioStarted = false;
 #ifdef ENABLE_AUDIO
-    if (wantAudio && this->audioController) {
+    if (wantAudioFile && this->audioController) {
         audioStarted = this->audioController->startRecording();
         if (!audioStarted) {
             // AudioController has already told the user if the folder was the problem.
@@ -2767,7 +2767,7 @@ auto Control::startRecording(std::string* error) -> bool {
         }
     }
 #else
-    if (wantAudio && !wantVideo) {
+    if (wantAudioFile && !wantVideo) {
         if (error != nullptr) {
             *error = _("Audio support was disabled when this copy of Xournal++ was built.");
         }
@@ -2777,8 +2777,8 @@ auto Control::startRecording(std::string* error) -> bool {
 
     if (wantVideo) {
         std::string videoError;
-        const fs::path output = this->screenRecorder->buildOutputPath(&videoError);
-        const bool videoStarted = !output.empty() && this->screenRecorder->start(output, &videoError);
+        const fs::path output = this->videoRecorder->buildOutputPath(&videoError);
+        const bool videoStarted = !output.empty() && this->videoRecorder->start(output, &videoError);
 
         if (!videoStarted) {
 #ifdef ENABLE_AUDIO
@@ -2798,8 +2798,8 @@ auto Control::startRecording(std::string* error) -> bool {
 }
 
 auto Control::stopRecording() -> bool {
-    if (this->screenRecorder->isRecording()) {
-        this->screenRecorder->stop();
+    if (this->videoRecorder->isRecording()) {
+        this->videoRecorder->stop();
     }
 #ifdef ENABLE_AUDIO
     if (this->audioController) {
@@ -2810,7 +2810,7 @@ auto Control::stopRecording() -> bool {
 }
 
 auto Control::isRecording() const -> bool {
-    if (this->screenRecorder && this->screenRecorder->isRecording()) {
+    if (this->videoRecorder && this->videoRecorder->isRecording()) {
         return true;
     }
 #ifdef ENABLE_AUDIO

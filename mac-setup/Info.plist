@@ -44,14 +44,12 @@
     <key>NSSupportsSuddenTermination</key>
     <false />
 
-    <!-- Microphone and camera are used by the audio recorder and by the screen recorder's ffmpeg
-         child process. macOS attributes a child's privacy requests to the bundle that spawned it,
-         and it does not merely refuse a request made without a usage description here: it aborts
-         the process outright, so leaving these out kills ffmpeg the moment a recording starts. -->
-    <key>NSCameraUsageDescription</key>
-    <string>Required to record a camera alongside the screen when one is chosen as the recording source.</string>
+    <!-- The microphone is used by the audio recorder and, through it, by the video recorder. macOS
+         attributes a child process's privacy requests to the bundle that spawned it, and it does
+         not merely refuse a request made without a usage description here: it aborts the process
+         outright, so leaving this out kills ffmpeg the moment a recording starts. -->
     <key>NSMicrophoneUsageDescription</key>
-    <string>Required to record narration alongside your notes and your screen.</string>
+    <string>Required to record narration alongside your notes.</string>
     <key>NSDesktopFolderUsageDescription</key>
     <string>Required to enable the internal file chooser to choose files from the desktop folder.</string>
     <key>NSDocumentsFolderUsageDescription</key>

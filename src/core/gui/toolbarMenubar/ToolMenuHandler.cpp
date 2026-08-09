@@ -119,7 +119,7 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                     continue;
                 }
                 if (!this->control->getAudioController() && name == "AUDIO_RECORDING" &&
-                    !this->control->getSettings()->isScreenRecordingEnabled()) {
+                    !this->control->getSettings()->isVideoRecordingEnabled()) {
                     continue;
                 }
 

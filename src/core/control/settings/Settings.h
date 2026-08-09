@@ -470,101 +470,69 @@ public:
 #endif
 
     // ---------------------------------------------------------------------------------------
-    // Screen recording
+    // Video recording
     //
-    // Deliberately outside the ENABLE_AUDIO guard. The screen capture is run by an external
-    // ffmpeg process and shares nothing with the PortAudio pipeline, so a build without audio
-    // support can still record video.
+    // What is recorded is the canvas, drawn from the document model at the output resolution --
+    // never the screen. The encoder is an external ffmpeg process; the microphone is the existing
+    // PortAudio pipeline, so those settings live under Audio Recording and are not repeated here.
     // ---------------------------------------------------------------------------------------
 
-    /// Capture the screen alongside the sound when the record button is pressed.
-    bool isScreenRecordingEnabled() const;
-    void setScreenRecordingEnabled(bool enabled);
+    /// Record a video of the canvas when the record button is pressed.
+    bool isVideoRecordingEnabled() const;
+    void setVideoRecordingEnabled(bool enabled);
+
+    /// Record the microphone into that video.
+    bool isVideoRecordingWithAudio() const;
+    void setVideoRecordingWithAudio(bool withAudio);
 
     /**
      * Also write the separate sound file that strokes are timestamped against.
      *
-     * With this off, pressing record produces a video and nothing else -- which is what most
-     * people want from a screen recording. It is on by default because turning it off silently
-     * disables the stroke playback feature: without that file there is no audio for a stroke to
-     * point at.
+     * Off by default: it is a second file for a feature -- replaying the audio that was being
+     * recorded while a given stroke was drawn -- that has nothing to do with wanting a video, and
+     * an unasked-for .ogg turning up beside every recording is a surprise. Turning it on costs
+     * nothing extra at the microphone; the same capture feeds both.
      */
-    bool isScreenRecordingKeepAudioFile() const;
-    void setScreenRecordingKeepAudioFile(bool keep);
+    bool isVideoRecordingKeepAudioFile() const;
+    void setVideoRecordingKeepAudioFile(bool keep);
 
     /// Where finished videos are written. Empty falls back to the audio folder.
     fs::path const& getVideoFolder() const;
     void setVideoFolder(fs::path videoFolder);
 
     /// Explicit ffmpeg binary; empty means "look on PATH and in the usual package prefixes".
-    std::string const& getScreenRecordingFfmpegPath() const;
-    void setScreenRecordingFfmpegPath(std::string path);
+    std::string const& getVideoRecordingFfmpegPath() const;
+    void setVideoRecordingFfmpegPath(std::string path);
 
-    int getScreenRecordingWidth() const;
-    int getScreenRecordingHeight() const;
-    void setScreenRecordingSize(int width, int height);
+    int getVideoRecordingWidth() const;
+    int getVideoRecordingHeight() const;
+    void setVideoRecordingSize(int width, int height);
 
-    int getScreenRecordingFps() const;
-    void setScreenRecordingFps(int fps);
+    int getVideoRecordingFps() const;
+    void setVideoRecordingFps(int fps);
 
     /// Video bitrate in kbit/s.
-    int getScreenRecordingVideoBitrate() const;
-    void setScreenRecordingVideoBitrate(int kbits);
+    int getVideoRecordingVideoBitrate() const;
+    void setVideoRecordingVideoBitrate(int kbits);
 
     /// Audio bitrate in kbit/s.
-    int getScreenRecordingAudioBitrate() const;
-    void setScreenRecordingAudioBitrate(int kbits);
-
-    int getScreenRecordingAudioSampleRate() const;
-    void setScreenRecordingAudioSampleRate(int sampleRate);
+    int getVideoRecordingAudioBitrate() const;
+    void setVideoRecordingAudioBitrate(int kbits);
 
     /// An ffmpeg encoder name, e.g. "h264_videotoolbox" or "libx264".
-    std::string const& getScreenRecordingVideoCodec() const;
-    void setScreenRecordingVideoCodec(std::string codec);
+    std::string const& getVideoRecordingVideoCodec() const;
+    void setVideoRecordingVideoCodec(std::string codec);
 
-    std::string const& getScreenRecordingAudioCodec() const;
-    void setScreenRecordingAudioCodec(std::string codec);
+    std::string const& getVideoRecordingAudioCodec() const;
+    void setVideoRecordingAudioCodec(std::string codec);
 
     /// Container extension without the dot: "mov", "mp4" or "mkv".
-    std::string const& getScreenRecordingContainer() const;
-    void setScreenRecordingContainer(std::string container);
-
-    bool isScreenRecordingCaptureCursor() const;
-    void setScreenRecordingCaptureCursor(bool capture);
-
-    /**
-     * Index of the screen to capture, in the platform grabber's own numbering.
-     *
-     * The default is SCREEN_RECORDING_FIRST_SCREEN rather than 0, because a grabber lists cameras
-     * and screens in one numbering and the cameras come first -- device 0 is usually the webcam.
-     */
-    static constexpr int SCREEN_RECORDING_FIRST_SCREEN = -1;
-    int getScreenRecordingVideoDevice() const;
-    void setScreenRecordingVideoDevice(int index);
-
-    /// Index of the microphone to record, in the grabber's separate audio numbering; -1 for none.
-    static constexpr int SCREEN_RECORDING_NO_AUDIO = -1;
-    int getScreenRecordingAudioDevice() const;
-    void setScreenRecordingAudioDevice(int index);
-
-    /// Audio device by name, for the backends that address devices that way (dshow, pulse).
-    std::string const& getScreenRecordingAudioDeviceName() const;
-    void setScreenRecordingAudioDeviceName(std::string name);
-
-    /**
-     * Region of the captured screen to keep, in captured pixels -- which on a HiDPI panel are not
-     * the same as the logical pixels the window manager reports. A zero width or height means the
-     * whole screen.
-     */
-    int getScreenRecordingRegionX() const;
-    int getScreenRecordingRegionY() const;
-    int getScreenRecordingRegionWidth() const;
-    int getScreenRecordingRegionHeight() const;
-    void setScreenRecordingRegion(int x, int y, int width, int height);
+    std::string const& getVideoRecordingContainer() const;
+    void setVideoRecordingContainer(std::string container);
 
     /// Extra ffmpeg arguments, appended last so they override everything derived from settings.
-    std::string const& getScreenRecordingExtraArguments() const;
-    void setScreenRecordingExtraArguments(std::string arguments);
+    std::string const& getVideoRecordingExtraArguments() const;
+    void setVideoRecordingExtraArguments(std::string arguments);
 
     // ---------------------------------------------------------------------------------------
     // Projector window
@@ -1286,31 +1254,26 @@ private:
 #endif
 
     /**
-     * Screen recording. Names match the settings.xml keys one-for-one, and the defaults are the
+     * Video recording. Names match the settings.xml keys one-for-one, and the defaults are the
      * ones a 1080p60 lecture capture wants: see Settings::loadDefault.
      */
-    bool screenRecordingEnabled{};
-    bool screenRecordingKeepAudioFile{};
+    /// Where finished videos are written; empty falls back to the audio folder.
     fs::path videoFolder;
-    std::string screenRecordingFfmpegPath;
-    int screenRecordingWidth{};
-    int screenRecordingHeight{};
-    int screenRecordingFps{};
-    int screenRecordingVideoBitrate{};
-    int screenRecordingAudioBitrate{};
-    int screenRecordingAudioSampleRate{};
-    std::string screenRecordingVideoCodec;
-    std::string screenRecordingAudioCodec;
-    std::string screenRecordingContainer;
-    bool screenRecordingCaptureCursor{};
-    int screenRecordingVideoDevice{};
-    int screenRecordingAudioDevice{};
-    std::string screenRecordingAudioDeviceName;
-    int screenRecordingRegionX{};
-    int screenRecordingRegionY{};
-    int screenRecordingRegionWidth{};
-    int screenRecordingRegionHeight{};
-    std::string screenRecordingExtraArguments;
+
+    bool videoRecordingEnabled{};
+    bool videoRecordingWithAudio{};
+    bool videoRecordingKeepAudioFile{};
+
+    std::string videoRecordingFfmpegPath;
+    int videoRecordingWidth{};
+    int videoRecordingHeight{};
+    int videoRecordingFps{};
+    int videoRecordingVideoBitrate{};
+    int videoRecordingAudioBitrate{};
+    std::string videoRecordingVideoCodec;
+    std::string videoRecordingAudioCodec;
+    std::string videoRecordingContainer;
+    std::string videoRecordingExtraArguments;
 
     /**
      * Projector window placement, stored the same way as the main window's: an offset from the

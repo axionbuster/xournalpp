@@ -1,7 +1,7 @@
 // Table of contents
 //   1. Widget construction helpers .. frame / grid / row builders
 //   2. The page ..................... RecordingSettingsPanel()
-//   3. Devices and preview .......... reloadDevices / readConfig / updatePreview
+//   3. The command preview .......... readConfig / updatePreview
 //   4. Load and save ................ load / save
 
 #include "RecordingSettingsPanel.h"
@@ -110,19 +110,28 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
         GtkWidget* content = nullptr;
         GtkWidget* frame = makeFrame(_("Recording"), &content);
 
-        gtk_box_pack_start(GTK_BOX(content),
-                           makeHint(_("Recording captures the screen and the microphone into a video file. The "
-                                      "encoding is done by ffmpeg, which must be installed separately.")),
-                           FALSE, TRUE, 0);
+        gtk_box_pack_start(
+                GTK_BOX(content),
+                makeHint(_("Recording writes a video of the page you are drawing on -- the canvas alone, drawn fresh "
+                           "at the size below. Nothing is taken off the screen, so no toolbar, no other window and no "
+                           "second display can appear in it, and the picture is sharp whatever the zoom level is. The "
+                           "encoding is done by ffmpeg, which must be installed separately.")),
+                FALSE, TRUE, 0);
 
-        this->cbEnabled = gtk_check_button_new_with_label(_("Capture the screen when recording"));
+        this->cbEnabled = gtk_check_button_new_with_label(_("Record a video when the record button is pressed"));
         gtk_box_pack_start(GTK_BOX(content), this->cbEnabled, FALSE, TRUE, 0);
+
+        this->cbWithAudio = gtk_check_button_new_with_label(_("Record the microphone into the video"));
+        gtk_widget_set_tooltip_text(this->cbWithAudio,
+                                    _("The input device, sample rate and gain are the ones under "
+                                      "\"Preferences > Audio Recording\"."));
+        gtk_box_pack_start(GTK_BOX(content), this->cbWithAudio, FALSE, TRUE, 0);
 
         this->cbKeepAudioFile =
                 gtk_check_button_new_with_label(_("Also write a separate audio file, so strokes can be played back"));
         gtk_widget_set_tooltip_text(this->cbKeepAudioFile,
-                                    _("Stroke playback needs an audio file of its own to point at. Turn this off to "
-                                      "record only the video."));
+                                    _("Stroke playback needs an audio file of its own to point at. Off by default: it "
+                                      "is a second file beside every recording, for a feature you may not be using."));
         gtk_box_pack_start(GTK_BOX(content), this->cbKeepAudioFile, FALSE, TRUE, 0);
 
         GtkWidget* grid = makeGrid();
@@ -139,42 +148,6 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
 
         this->lbFfmpegStatus = makeHint("");
         gtk_box_pack_start(GTK_BOX(content), this->lbFfmpegStatus, FALSE, TRUE, 0);
-
-        gtk_box_pack_start(GTK_BOX(column), frame, FALSE, TRUE, 0);
-    }
-
-    // --- what gets captured --------------------------------------------------------------
-    {
-        GtkWidget* content = nullptr;
-        GtkWidget* frame = makeFrame(_("Capture"), &content);
-
-        GtkWidget* grid = makeGrid();
-        int row = 0;
-
-        this->cbScreen = gtk_combo_box_text_new();
-        addRow(grid, row++, _("Screen:"), this->cbScreen);
-
-        this->cbMicrophone = gtk_combo_box_text_new();
-        addRow(grid, row++, _("Microphone:"), this->cbMicrophone);
-
-        this->spRegionX = makeSpin(0, 32000, 1);
-        this->spRegionY = makeSpin(0, 32000, 1);
-        addRow(grid, row++, _("Crop origin:"), makePair(this->spRegionX, ",", this->spRegionY));
-
-        this->spRegionWidth = makeSpin(0, 32000, 1);
-        this->spRegionHeight = makeSpin(0, 32000, 1);
-        addRow(grid, row++, _("Crop size:"), makePair(this->spRegionWidth, "×", this->spRegionHeight));
-
-        gtk_box_pack_start(GTK_BOX(content), grid, FALSE, TRUE, 0);
-
-        gtk_box_pack_start(GTK_BOX(content),
-                           makeHint(_("A crop size of 0 captures the whole screen. The crop is measured in captured "
-                                      "pixels, which on a HiDPI display are more numerous than the pixels the desktop "
-                                      "reports.")),
-                           FALSE, TRUE, 0);
-
-        this->cbCaptureCursor = gtk_check_button_new_with_label(_("Include the mouse pointer"));
-        gtk_box_pack_start(GTK_BOX(content), this->cbCaptureCursor, FALSE, TRUE, 0);
 
         gtk_box_pack_start(GTK_BOX(column), frame, FALSE, TRUE, 0);
     }
@@ -199,9 +172,6 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
 
         this->spAudioBitrate = makeSpin(32, 512, 32);
         addRow(grid, row++, _("Audio bitrate (kbit/s):"), this->spAudioBitrate);
-
-        this->spAudioSampleRate = makeSpin(8000, 192000, 1000);
-        addRow(grid, row++, _("Audio sample rate (Hz):"), this->spAudioSampleRate);
 
         this->enVideoCodec = gtk_entry_new();
         gtk_widget_set_tooltip_text(this->enVideoCodec,
@@ -234,15 +204,6 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
         gtk_label_set_max_width_chars(GTK_LABEL(this->lbPreview), 70);
         gtk_widget_set_name(this->lbPreview, "recordingCommandPreview");
         gtk_box_pack_start(GTK_BOX(content), this->lbPreview, FALSE, TRUE, 0);
-
-        GtkWidget* refresh = gtk_button_new_with_label(_("Refresh"));
-        gtk_widget_set_halign(refresh, GTK_ALIGN_START);
-        g_signal_connect_swapped(refresh, "clicked", G_CALLBACK(+[](RecordingSettingsPanel* self) {
-                                     self->reloadDevices();
-                                     self->updatePreview();
-                                 }),
-                                 this);
-        gtk_box_pack_start(GTK_BOX(content), refresh, FALSE, FALSE, 0);
 
         gtk_box_pack_start(GTK_BOX(column), frame, FALSE, TRUE, 0);
     }
@@ -302,110 +263,57 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
     // not what was saved. Rebuilding it reads widgets and formats a string -- no process is
     // spawned -- so doing it on every keystroke is cheap enough.
     auto onChanged = G_CALLBACK(+[](GtkWidget*, RecordingSettingsPanel* self) { self->updatePreview(); });
-    for (GtkWidget* widget: {this->spWidth, this->spHeight, this->spFps, this->spVideoBitrate, this->spAudioBitrate,
-                             this->spAudioSampleRate, this->spRegionX, this->spRegionY, this->spRegionWidth,
-                             this->spRegionHeight}) {
+    for (GtkWidget* widget: {this->spWidth, this->spHeight, this->spFps, this->spVideoBitrate, this->spAudioBitrate}) {
         g_signal_connect(widget, "value-changed", onChanged, this);
     }
-    for (GtkWidget* widget: {this->enVideoCodec, this->enAudioCodec, this->enExtraArguments}) {
+    for (GtkWidget* widget: {this->enVideoCodec, this->enAudioCodec, this->enExtraArguments, this->enFfmpegPath}) {
         g_signal_connect(widget, "changed", onChanged, this);
     }
-    for (GtkWidget* widget: {this->cbContainer, this->cbScreen, this->cbMicrophone}) {
-        g_signal_connect(widget, "changed", onChanged, this);
-    }
-    g_signal_connect(this->cbCaptureCursor, "toggled", onChanged, this);
+    g_signal_connect(this->cbContainer, "changed", onChanged, this);
+    g_signal_connect(this->cbWithAudio, "toggled", onChanged, this);
 
     gtk_widget_show_all(scrolled);
     this->panel = scrolled;
 }
 
 // ===========================================================================================
-// 3. Devices and preview
+// 3. The command preview
 // ===========================================================================================
 
-void RecordingSettingsPanel::reloadDevices() {
-    const fs::path ffmpeg =
-            ScreenRecorder::resolveFfmpeg(std::string(gtk_entry_get_text(GTK_ENTRY(this->enFfmpegPath))));
+auto RecordingSettingsPanel::readConfig() const -> VideoRecorderConfig {
+    VideoRecorderConfig config;
 
-    if (ffmpeg.empty()) {
-        gtk_label_set_markup(GTK_LABEL(this->lbFfmpegStatus),
-                             _("<i>No ffmpeg binary was found. Install ffmpeg, or type its full path above.</i>"));
-    } else {
-        gchar* markup = g_markup_printf_escaped("<i>Using %s</i>", ffmpeg.string().c_str());
-        gtk_label_set_markup(GTK_LABEL(this->lbFfmpegStatus), markup);
-        g_free(markup);
-    }
-
-    // Remember the selections across the refill, so pressing Refresh does not silently move the
-    // capture to a different screen.
-    const gint previousScreen = gtk_combo_box_get_active(GTK_COMBO_BOX(this->cbScreen));
-    const gint previousMicrophone = gtk_combo_box_get_active(GTK_COMBO_BOX(this->cbMicrophone));
-
-    ScreenRecorder::listCaptureDevices(ffmpeg, this->videoDevices, this->audioDevices);
-
-    gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(this->cbScreen));
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbScreen), "", _("First screen found"));
-    for (const CaptureDevice& device: this->videoDevices) {
-        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbScreen), "", device.name.c_str());
-    }
-    gtk_combo_box_set_active(GTK_COMBO_BOX(this->cbScreen), std::max(0, previousScreen));
-
-    gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(this->cbMicrophone));
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbMicrophone), "", _("No sound"));
-    for (const CaptureDevice& device: this->audioDevices) {
-        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbMicrophone), "", device.name.c_str());
-    }
-    gtk_combo_box_set_active(GTK_COMBO_BOX(this->cbMicrophone), std::max(0, previousMicrophone));
-}
-
-auto RecordingSettingsPanel::readConfig() const -> ScreenRecorderConfig {
-    ScreenRecorderConfig config;
-
-    config.ffmpeg = ScreenRecorder::resolveFfmpeg(std::string(gtk_entry_get_text(GTK_ENTRY(this->enFfmpegPath))));
+    config.ffmpeg = VideoRecorder::resolveFfmpeg(std::string(gtk_entry_get_text(GTK_ENTRY(this->enFfmpegPath))));
     config.width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spWidth));
     config.height = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spHeight));
     config.fps = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spFps));
     config.videoBitrate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spVideoBitrate));
     config.audioBitrate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spAudioBitrate));
-    config.audioSampleRate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spAudioSampleRate));
     config.videoCodec = gtk_entry_get_text(GTK_ENTRY(this->enVideoCodec));
     config.audioCodec = gtk_entry_get_text(GTK_ENTRY(this->enAudioCodec));
     config.extraArguments = gtk_entry_get_text(GTK_ENTRY(this->enExtraArguments));
-    config.captureCursor = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbCaptureCursor));
-    config.regionX = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spRegionX));
-    config.regionY = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spRegionY));
-    config.regionWidth = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spRegionWidth));
-    config.regionHeight = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spRegionHeight));
+    config.withAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbWithAudio));
 
     if (const gchar* id = gtk_combo_box_get_active_id(GTK_COMBO_BOX(this->cbContainer)); id != nullptr) {
         config.container = id;
-    }
-
-    // Row 0 of each combo is the synthetic entry, so a real device is at row - 1 of the list.
-    const gint screenRow = gtk_combo_box_get_active(GTK_COMBO_BOX(this->cbScreen));
-    if (screenRow > 0 && static_cast<size_t>(screenRow - 1) < this->videoDevices.size()) {
-        config.videoDevice = this->videoDevices[static_cast<size_t>(screenRow - 1)].index;
-    } else {
-        const auto screen = std::find_if(this->videoDevices.begin(), this->videoDevices.end(),
-                                         [](const CaptureDevice& d) { return d.isScreen; });
-        config.videoDevice = screen != this->videoDevices.end() ? screen->index : 0;
-    }
-
-    const gint microphoneRow = gtk_combo_box_get_active(GTK_COMBO_BOX(this->cbMicrophone));
-    if (microphoneRow > 0 && static_cast<size_t>(microphoneRow - 1) < this->audioDevices.size()) {
-        const CaptureDevice& device = this->audioDevices[static_cast<size_t>(microphoneRow - 1)];
-        config.audioDevice = device.index;
-        config.audioDeviceName = device.name;
-    } else {
-        config.audioDevice = Settings::SCREEN_RECORDING_NO_AUDIO;
-        config.audioDeviceName.clear();
     }
 
     return config;
 }
 
 void RecordingSettingsPanel::updatePreview() {
-    const ScreenRecorderConfig config = readConfig();
+    const fs::path ffmpeg =
+            VideoRecorder::resolveFfmpeg(std::string(gtk_entry_get_text(GTK_ENTRY(this->enFfmpegPath))));
+    if (ffmpeg.empty()) {
+        gtk_label_set_markup(GTK_LABEL(this->lbFfmpegStatus),
+                             _("<i>No ffmpeg binary was found. Install ffmpeg, or type its full path above.</i>"));
+    } else {
+        gchar* status = g_markup_printf_escaped("<i>Using %s</i>", ffmpeg.string().c_str());
+        gtk_label_set_markup(GTK_LABEL(this->lbFfmpegStatus), status);
+        g_free(status);
+    }
+
+    const VideoRecorderConfig config = readConfig();
     const std::string command = config.describeCommandLine("recording." + config.container);
     gchar* markup = g_markup_printf_escaped("<tt><small>%s</small></tt>", command.c_str());
     gtk_label_set_markup(GTK_LABEL(this->lbPreview), markup);
@@ -417,8 +325,9 @@ void RecordingSettingsPanel::updatePreview() {
 // ===========================================================================================
 
 void RecordingSettingsPanel::load(const Settings& settings) {
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbEnabled), settings.isScreenRecordingEnabled());
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbKeepAudioFile), settings.isScreenRecordingKeepAudioFile());
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbEnabled), settings.isVideoRecordingEnabled());
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbWithAudio), settings.isVideoRecordingWithAudio());
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbKeepAudioFile), settings.isVideoRecordingKeepAudioFile());
 
     // An unset video folder means "put videos beside the sound files", so show that folder rather
     // than an empty chooser the user cannot interpret.
@@ -429,50 +338,19 @@ void RecordingSettingsPanel::load(const Settings& settings) {
                                             Util::toGFilename(folder).c_str());
     }
 
-    gtk_entry_set_text(GTK_ENTRY(this->enFfmpegPath), settings.getScreenRecordingFfmpegPath().c_str());
+    gtk_entry_set_text(GTK_ENTRY(this->enFfmpegPath), settings.getVideoRecordingFfmpegPath().c_str());
 
-    reloadDevices();
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spWidth), settings.getVideoRecordingWidth());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spHeight), settings.getVideoRecordingHeight());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spFps), settings.getVideoRecordingFps());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spVideoBitrate), settings.getVideoRecordingVideoBitrate());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spAudioBitrate), settings.getVideoRecordingAudioBitrate());
 
-    // Select the remembered devices by the grabber's index, not by row: the lists can come back in
-    // a different order, or shorter, when a display or a microphone has been unplugged.
-    gtk_combo_box_set_active(GTK_COMBO_BOX(this->cbScreen), 0);
-    if (const int wanted = settings.getScreenRecordingVideoDevice(); wanted >= 0) {
-        for (size_t i = 0; i < this->videoDevices.size(); i++) {
-            if (this->videoDevices[i].index == wanted) {
-                gtk_combo_box_set_active(GTK_COMBO_BOX(this->cbScreen), static_cast<gint>(i + 1));
-                break;
-            }
-        }
-    }
+    gtk_entry_set_text(GTK_ENTRY(this->enVideoCodec), settings.getVideoRecordingVideoCodec().c_str());
+    gtk_entry_set_text(GTK_ENTRY(this->enAudioCodec), settings.getVideoRecordingAudioCodec().c_str());
+    gtk_entry_set_text(GTK_ENTRY(this->enExtraArguments), settings.getVideoRecordingExtraArguments().c_str());
 
-    gtk_combo_box_set_active(GTK_COMBO_BOX(this->cbMicrophone), 0);
-    if (const int wanted = settings.getScreenRecordingAudioDevice(); wanted >= 0) {
-        for (size_t i = 0; i < this->audioDevices.size(); i++) {
-            if (this->audioDevices[i].index == wanted) {
-                gtk_combo_box_set_active(GTK_COMBO_BOX(this->cbMicrophone), static_cast<gint>(i + 1));
-                break;
-            }
-        }
-    }
-
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbCaptureCursor), settings.isScreenRecordingCaptureCursor());
-
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spWidth), settings.getScreenRecordingWidth());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spHeight), settings.getScreenRecordingHeight());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spFps), settings.getScreenRecordingFps());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spVideoBitrate), settings.getScreenRecordingVideoBitrate());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spAudioBitrate), settings.getScreenRecordingAudioBitrate());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spAudioSampleRate), settings.getScreenRecordingAudioSampleRate());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spRegionX), settings.getScreenRecordingRegionX());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spRegionY), settings.getScreenRecordingRegionY());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spRegionWidth), settings.getScreenRecordingRegionWidth());
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spRegionHeight), settings.getScreenRecordingRegionHeight());
-
-    gtk_entry_set_text(GTK_ENTRY(this->enVideoCodec), settings.getScreenRecordingVideoCodec().c_str());
-    gtk_entry_set_text(GTK_ENTRY(this->enAudioCodec), settings.getScreenRecordingAudioCodec().c_str());
-    gtk_entry_set_text(GTK_ENTRY(this->enExtraArguments), settings.getScreenRecordingExtraArguments().c_str());
-
-    if (!gtk_combo_box_set_active_id(GTK_COMBO_BOX(this->cbContainer), settings.getScreenRecordingContainer().c_str())) {
+    if (!gtk_combo_box_set_active_id(GTK_COMBO_BOX(this->cbContainer), settings.getVideoRecordingContainer().c_str())) {
         gtk_combo_box_set_active(GTK_COMBO_BOX(this->cbContainer), 0);
     }
 
@@ -491,34 +369,26 @@ void RecordingSettingsPanel::load(const Settings& settings) {
 }
 
 void RecordingSettingsPanel::save(Settings& settings) {
-    settings.setScreenRecordingEnabled(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbEnabled)));
-    settings.setScreenRecordingKeepAudioFile(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbKeepAudioFile)));
+    settings.setVideoRecordingEnabled(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbEnabled)));
+    settings.setVideoRecordingWithAudio(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbWithAudio)));
+    settings.setVideoRecordingKeepAudioFile(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbKeepAudioFile)));
 
     if (gchar* folder = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(this->fcVideoFolder)); folder != nullptr) {
         settings.setVideoFolder(Util::fromGFilename(folder));
         g_free(folder);
     }
 
-    settings.setScreenRecordingFfmpegPath(gtk_entry_get_text(GTK_ENTRY(this->enFfmpegPath)));
+    settings.setVideoRecordingFfmpegPath(gtk_entry_get_text(GTK_ENTRY(this->enFfmpegPath)));
 
-    const ScreenRecorderConfig config = readConfig();
-    settings.setScreenRecordingVideoDevice(
-            gtk_combo_box_get_active(GTK_COMBO_BOX(this->cbScreen)) > 0 ? config.videoDevice :
-                                                                         Settings::SCREEN_RECORDING_FIRST_SCREEN);
-    settings.setScreenRecordingAudioDevice(config.audioDevice);
-    settings.setScreenRecordingAudioDeviceName(config.audioDeviceName);
-    settings.setScreenRecordingCaptureCursor(config.captureCursor);
-
-    settings.setScreenRecordingSize(config.width, config.height);
-    settings.setScreenRecordingFps(config.fps);
-    settings.setScreenRecordingVideoBitrate(config.videoBitrate);
-    settings.setScreenRecordingAudioBitrate(config.audioBitrate);
-    settings.setScreenRecordingAudioSampleRate(config.audioSampleRate);
-    settings.setScreenRecordingVideoCodec(config.videoCodec);
-    settings.setScreenRecordingAudioCodec(config.audioCodec);
-    settings.setScreenRecordingContainer(config.container);
-    settings.setScreenRecordingRegion(config.regionX, config.regionY, config.regionWidth, config.regionHeight);
-    settings.setScreenRecordingExtraArguments(config.extraArguments);
+    const VideoRecorderConfig config = readConfig();
+    settings.setVideoRecordingSize(config.width, config.height);
+    settings.setVideoRecordingFps(config.fps);
+    settings.setVideoRecordingVideoBitrate(config.videoBitrate);
+    settings.setVideoRecordingAudioBitrate(config.audioBitrate);
+    settings.setVideoRecordingVideoCodec(config.videoCodec);
+    settings.setVideoRecordingAudioCodec(config.audioCodec);
+    settings.setVideoRecordingContainer(config.container);
+    settings.setVideoRecordingExtraArguments(config.extraArguments);
 
     settings.setProjectorKeepAbove(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbProjectorKeepAbove)));
     settings.setProjectorOpenAtStartup(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbProjectorOpenAtStartup)));
