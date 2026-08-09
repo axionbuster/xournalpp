@@ -485,6 +485,8 @@ auto VideoRecorder::start(const fs::path& file, std::string* error) -> bool {
     this->stopping = false;
     this->renderTimeTotal = 0;
     this->renderCount = 0;
+    this->renderMeter.reset();
+    this->outputMeter.reset();
     this->hasPending = false;
     this->pending.clear();
     this->spare.clear();
@@ -742,8 +744,18 @@ auto VideoRecorder::onRenderTick(gpointer data) -> gboolean {
     self->renderFrame();
     self->renderTimeTotal += g_get_monotonic_time() - before;
     self->renderCount++;
+    // Counted here rather than where a frame is handed over, because a frame identical to the last
+    // one is deliberately not handed over and is not a frame missed. What this measures is whether
+    // the timer is being serviced at the rate the recording was configured for.
+    self->renderMeter.tick();
     return G_SOURCE_CONTINUE;
 }
+
+auto VideoRecorder::getRenderRate() const -> double { return this->running ? this->renderMeter.rate() : 0.0; }
+
+auto VideoRecorder::getOutputRate() const -> double { return this->running ? this->outputMeter.rate() : 0.0; }
+
+auto VideoRecorder::getTargetRate() const -> int { return this->running ? this->config.fps : 0; }
 
 void VideoRecorder::renderFrame() {
     if (this->surface == nullptr) {
@@ -866,6 +878,7 @@ void VideoRecorder::writerLoop() {
                 remaining -= static_cast<size_t>(written);
             }
             emitted++;
+            this->outputMeter.tick();
         }
     }
 }

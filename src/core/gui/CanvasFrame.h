@@ -16,9 +16,12 @@
 
 #pragma once
 
+#include <array>       // for array
+#include <cstddef>     // for size_t
 #include <cstdint>     // for uint64_t
 #include <functional>  // for function
 #include <memory>      // for shared_ptr
+#include <mutex>       // for mutex
 
 #include <cairo.h>
 #include <glib.h>  // for gint64
@@ -154,6 +157,58 @@ private:
      * there is no race to lose.
      */
     std::shared_ptr<FrameCache*> aliveToken;
+};
+
+/**
+ * How often something is happening right now, in hertz -- the number OBS puts in its status bar.
+ *
+ * The point of showing it is that it is the one figure that says whether the machine is keeping up.
+ * Frames the recorder never manages to draw are frames the encoder repeats, so a rate sitting below
+ * the configured one is a recording that is quietly stuttering, and the only way to notice while
+ * there is still time to do something about it is to have the number in front of you.
+ *
+ * Measured over a sliding one-second window rather than by averaging since the start, because a
+ * lifetime average of an hour-long lecture would barely move for a stall that lasted a minute. The
+ * window also means the reading falls away on its own when ticks stop, instead of freezing at the
+ * last healthy value.
+ *
+ * One thread may tick while another reads -- the recorder's frames are emitted by its writer thread
+ * and displayed by the user interface thread -- so both ends take a lock. It is held for a handful
+ * of instructions, tens of times a second.
+ */
+class FrameRateMeter {
+public:
+    /// Record that one frame happened, now.
+    void tick();
+
+    /// Forget everything measured so far, as at the start of a recording.
+    void reset();
+
+    /**
+     * Frames per second over the last second.
+     *
+     * 0 until half a second has been measured, and 0 again once ticking has stopped for a second.
+     * Callers should read that as "no reading", not as "nothing is happening": a rate divided out of
+     * one or two samples is noise, and showing it is worse than showing nothing.
+     */
+    double rate() const;
+
+private:
+    /// The window the rate is measured over, in microseconds.
+    static constexpr gint64 WINDOW = 1000 * 1000;
+
+    /// Enough timestamps for the window at any frame rate anyone would record at.
+    static constexpr std::size_t CAPACITY = 256;
+
+    mutable std::mutex mutex;
+    std::array<gint64, CAPACITY> times{};
+
+    /// Where the next timestamp goes; the ring is full once `filled` is set.
+    std::size_t next = 0;
+    bool filled = false;
+
+    /// The very first tick, so the first second reports a real rate instead of ramping up to one.
+    gint64 firstTick = 0;
 };
 
 /**

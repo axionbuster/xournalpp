@@ -286,4 +286,66 @@ auto drawCurrentPage(Control* control, cairo_t* cr, double width, double height,
     return layout;
 }
 
+// ===========================================================================================
+// Frame rate meter
+// ===========================================================================================
+
+void FrameRateMeter::tick() {
+    const gint64 now = g_get_monotonic_time();
+
+    std::lock_guard<std::mutex> lock(this->mutex);
+    if (this->firstTick == 0) {
+        this->firstTick = now;
+    }
+    this->times[this->next] = now;
+    this->next = (this->next + 1) % CAPACITY;
+    if (this->next == 0) {
+        this->filled = true;
+    }
+}
+
+void FrameRateMeter::reset() {
+    std::lock_guard<std::mutex> lock(this->mutex);
+    this->next = 0;
+    this->filled = false;
+    this->firstTick = 0;
+}
+
+auto FrameRateMeter::rate() const -> double {
+    const gint64 now = g_get_monotonic_time();
+
+    std::lock_guard<std::mutex> lock(this->mutex);
+    if (this->firstTick == 0) {
+        return 0.0;
+    }
+
+    // Too soon to say anything. A rate worked out from the first tick or two is arithmetic on a
+    // sample of one -- the first reading of a 30 Hz clock came out as a million -- and a wrong
+    // number is worse than no number, so nothing is reported until there is something to divide by.
+    const gint64 age = now - this->firstTick;
+    if (age < WINDOW / 2) {
+        return 0.0;
+    }
+
+    const gint64 cutoff = now - WINDOW;
+    const std::size_t stored = this->filled ? CAPACITY : this->next;
+
+    std::size_t counted = 0;
+    for (std::size_t i = 0; i < stored; i++) {
+        // Walk back from the newest, and stop at the first one that has fallen out of the window:
+        // the ring is in time order, so everything before it has fallen out too.
+        const std::size_t index = (this->next + CAPACITY - 1 - i) % CAPACITY;
+        if (this->times[index] <= cutoff) {
+            break;
+        }
+        counted++;
+    }
+
+    // Divided by however much of the window has actually been measured. Dividing by the whole
+    // window before it has filled would report a rate climbing towards the real one from below --
+    // a recording that appears to start out stuttering and then recover, which it did not.
+    const gint64 span = std::min<gint64>(WINDOW, age);
+    return static_cast<double>(counted) * 1e6 / static_cast<double>(span);
+}
+
 }  // namespace xoj::canvas

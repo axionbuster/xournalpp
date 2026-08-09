@@ -94,4 +94,5 @@ private:
     GtkWidget* cbProjectorShowSafeArea = nullptr;
     GtkWidget* spProjectorSafeAreaHeight = nullptr;
     GtkWidget* btProjectorBackground = nullptr;
+    GtkWidget* cbShowFrameRate = nullptr;
 };

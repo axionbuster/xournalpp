@@ -625,6 +625,16 @@ public:
     Color getProjectorBackgroundColor() const;
     void setProjectorBackgroundColor(Color color);
 
+    /**
+     * Show the frame rate in the projector window and next to the record button.
+     *
+     * Never in the recording itself -- it is drawn over the projector's own picture, after the
+     * frame the encoder is given has already been made, so what is on screen for the presenter
+     * differs from the file by exactly this one readout.
+     */
+    bool isShowFrameRate() const;
+    void setShowFrameRate(bool show);
+
     std::string const& getPluginEnabled() const;
     void setPluginEnabled(const std::string& pluginEnabled);
 
@@ -1358,6 +1368,9 @@ private:
     bool projectorShowSafeArea{};
     int projectorSafeAreaHeight{};
     Color projectorBackgroundColor{};
+
+    /// See isShowFrameRate().
+    bool showFrameRate{};
 
     /**
      * List of enabled plugins (only the one which are not enabled by default)

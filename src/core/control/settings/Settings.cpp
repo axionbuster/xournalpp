@@ -284,6 +284,7 @@ void Settings::loadDefault() {
     // pixels rather than a percentage, and 150 is the usual ask for 1080p.
     this->projectorSafeAreaHeight = 150;
     this->projectorBackgroundColor = Colors::black;
+    this->showFrameRate = true;
 
     this->pluginEnabled = "";
     this->pluginDisabled = "";
@@ -810,6 +811,8 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
                 std::max<int>(0, static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10)));
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorBackgroundColor")) == 0) {
         this->projectorBackgroundColor = Color(g_ascii_strtoull(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("showFrameRate")) == 0) {
+        this->showFrameRate = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("numIgnoredStylusEvents")) == 0) {
         this->numIgnoredStylusEvents =
                 std::max<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10), 0);
@@ -1389,6 +1392,8 @@ void Settings::save() {
     SAVE_INT_PROP(projectorSafeAreaHeight);
     ATTACH_COMMENT("Height of the caption safe area, in pixels of the recording's own frame.");
     xmlNode = savePropertyUnsigned("projectorBackgroundColor", uint32_t(projectorBackgroundColor), root);
+    SAVE_BOOL_PROP(showFrameRate);
+    ATTACH_COMMENT("Show the frame rate in the projector and on the record button. Never in the recording.");
 
     SAVE_STRING_PROP(pluginEnabled);
     SAVE_STRING_PROP(pluginDisabled);
@@ -2861,6 +2866,16 @@ void Settings::setProjectorBackgroundColor(Color color) {
         return;
     }
     this->projectorBackgroundColor = color;
+    save();
+}
+
+auto Settings::isShowFrameRate() const -> bool { return this->showFrameRate; }
+
+void Settings::setShowFrameRate(bool show) {
+    if (this->showFrameRate == show) {
+        return;
+    }
+    this->showFrameRate = show;
     save();
 }
 

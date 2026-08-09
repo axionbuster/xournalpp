@@ -3,8 +3,9 @@
 #include <string>   // for string
 #include <utility>  // for move
 
-#include "control/Control.h"  // for Control
-#include "util/gtk4_helper.h"  // for gtk_button_set_child, gtk_widget_add_css_class
+#include "control/Control.h"             // for Control
+#include "control/settings/Settings.h"   // for Settings
+#include "util/gtk4_helper.h"            // for gtk_button_set_child, gtk_widget_add_css_class
 
 namespace {
 
@@ -20,6 +21,10 @@ struct ElapsedTimeCounter {
     Control* control = nullptr;
     GtkWidget* button = nullptr;
     GtkWidget* label = nullptr;
+
+    /// The frame rate beside the clock, shown only while a video is being written. See Settings.
+    GtkWidget* frameRateLabel = nullptr;
+
     guint source = 0;
 };
 
@@ -52,6 +57,27 @@ auto updateCounter(gpointer data) -> gboolean {
     if (text != gtk_label_get_text(GTK_LABEL(counter->label))) {
         gtk_label_set_text(GTK_LABEL(counter->label), text.c_str());
     }
+
+    // The frame rate belongs to the video, so it appears only when there is a video: an audio-only
+    // recording has no frames to count, and a target rate of zero is exactly how that is reported.
+    const int target = counter->control->getVideoTargetFrameRate();
+    const double rate = counter->control->getVideoFrameRate();
+    const bool showFrameRate = target > 0 && counter->control->getSettings()->isShowFrameRate();
+    if (showFrameRate) {
+        // A rate of zero means nothing has been measured yet, half a second into the recording, and
+        // showing it would read as a stall that is not happening. The label waits instead.
+        if (rate > 0.0) {
+            char buffer[24];
+            g_snprintf(buffer, sizeof(buffer), "%.1f fps", rate);
+            if (g_strcmp0(buffer, gtk_label_get_text(GTK_LABEL(counter->frameRateLabel))) != 0) {
+                gtk_label_set_text(GTK_LABEL(counter->frameRateLabel), buffer);
+            }
+            gtk_widget_show(counter->frameRateLabel);
+        }
+    } else {
+        gtk_widget_hide(counter->frameRateLabel);
+    }
+
     return G_SOURCE_CONTINUE;
 }
 
@@ -78,6 +104,8 @@ void applyRecordingState(ElapsedTimeCounter* counter, bool recording) {
         gtk_widget_remove_css_class(counter->button, RECORDING_CLASS);
         gtk_widget_hide(counter->label);
         gtk_label_set_text(GTK_LABEL(counter->label), "");
+        gtk_widget_hide(counter->frameRateLabel);
+        gtk_label_set_text(GTK_LABEL(counter->frameRateLabel), "");
     }
 }
 
@@ -109,14 +137,27 @@ auto RecordButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     pango_attr_list_unref(attributes);
     gtk_box_append(GTK_BOX(box), label);
 
+    // The frame rate, in the same monospace so it does not jostle its neighbours either, and a size
+    // down and dimmed because it is a health reading rather than something to be read continuously.
+    GtkWidget* frameRateLabel = gtk_label_new("");
+    PangoAttrList* frameRateAttributes = pango_attr_list_new();
+    pango_attr_list_insert(frameRateAttributes, pango_attr_family_new("monospace"));
+    pango_attr_list_insert(frameRateAttributes, pango_attr_scale_new(PANGO_SCALE_SMALL));
+    pango_attr_list_insert(frameRateAttributes, pango_attr_foreground_alpha_new(static_cast<guint16>(0.7 * 65535)));
+    gtk_label_set_attributes(GTK_LABEL(frameRateLabel), frameRateAttributes);
+    pango_attr_list_unref(frameRateAttributes);
+    gtk_box_append(GTK_BOX(box), frameRateLabel);
+
     gtk_button_set_child(GTK_BUTTON(button), box);
     gtk_widget_show_all(box);
     // Whether the counter is visible is ours to decide, and a gtk_widget_show_all on the toolbar
     // that contains it -- which happens whenever a toolbar is built -- would otherwise override it.
     gtk_widget_set_no_show_all(label, TRUE);
     gtk_widget_hide(label);
+    gtk_widget_set_no_show_all(frameRateLabel, TRUE);
+    gtk_widget_hide(frameRateLabel);
 
-    auto* counter = new ElapsedTimeCounter{this->control, button, label, 0};
+    auto* counter = new ElapsedTimeCounter{this->control, button, label, frameRateLabel, 0};
     g_object_set_data_full(G_OBJECT(button), "xopp-record-counter", counter, +[](gpointer data) {
         auto* counter = static_cast<ElapsedTimeCounter*>(data);
         stopCounting(counter);

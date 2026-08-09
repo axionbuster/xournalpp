@@ -2869,6 +2869,18 @@ auto Control::isRecording() const -> bool {
     return false;
 }
 
+auto Control::getVideoFrameRate() const -> double {
+    return this->videoRecorder ? this->videoRecorder->getRenderRate() : 0.0;
+}
+
+auto Control::getVideoTargetFrameRate() const -> int {
+    return this->videoRecorder ? this->videoRecorder->getTargetRate() : 0;
+}
+
+auto Control::getVideoOutputFrameRate() const -> double {
+    return this->videoRecorder ? this->videoRecorder->getOutputRate() : 0.0;
+}
+
 auto Control::getPageTypes() const -> PageTypeHandler* { return this->pageTypes; }
 
 auto Control::getPageBackgroundChangeController() const -> PageBackgroundChangeController* {

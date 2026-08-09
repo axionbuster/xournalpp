@@ -364,6 +364,21 @@ public:
     gint64 getRecordingStartTime() const;
 
     /**
+     * How fast the video recording is really going, in frames per second, and the rate it is aiming
+     * for. Both 0 when no video is being recorded.
+     *
+     * Frames are drawn on this thread, so the first number falling below the second says the user
+     * interface is not keeping up -- with the pen as much as with the recording. That is worth
+     * having in front of you while there is still time to close something, which is why both the
+     * projector and the record button can show it. See VideoRecorder::getRenderRate.
+     */
+    double getVideoFrameRate() const;
+    int getVideoTargetFrameRate() const;
+
+    /// How fast frames are reaching the encoder. See VideoRecorder::getOutputRate.
+    double getVideoOutputFrameRate() const;
+
+    /**
      * A counter that changes whenever the settled content of a page does -- a stroke finished, an
      * undo, a background swapped, a layer hidden -- and stays put while a stroke is merely being
      * drawn, since ink under the pen is an overlay and not yet part of any page.

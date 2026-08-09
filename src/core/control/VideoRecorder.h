@@ -202,6 +202,31 @@ public:
     void onToolViewSettled(const PageRef& page, const xoj::view::ToolView* v);
 
     // ---------------------------------------------------------------------------------------
+    // Health, for the frame rate indicator
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * How often frames are actually being drawn, right now, in hertz. 0 when not recording.
+     *
+     * This is the number worth watching. Frames are drawn on the user interface thread, so a rate
+     * below the configured one means that thread is too busy to keep up -- with the pen, as much as
+     * with the recording -- and the encoder is being handed the same picture twice.
+     */
+    double getRenderRate() const;
+
+    /**
+     * How often frames are reaching the encoder, right now, in hertz. 0 when not recording.
+     *
+     * Steady at the configured rate by design: the writer emits on wall-clock time whether or not a
+     * fresh picture arrived, which is what keeps the picture level with the sound. It falling below
+     * means the pipe itself is not draining -- a busy disk, an encoder that cannot keep up.
+     */
+    double getOutputRate() const;
+
+    /// The frame rate the recording in progress is aiming for. 0 when not recording.
+    int getTargetRate() const;
+
+    // ---------------------------------------------------------------------------------------
     // Configuration, exposed for the preferences dialog
     // ---------------------------------------------------------------------------------------
 
@@ -285,6 +310,11 @@ private:
     /// How long drawing frames has cost, for the line printed when a recording finishes.
     gint64 renderTimeTotal = 0;
     long long renderCount = 0;
+
+    /// What the frame rate indicator reads. Ticked on the UI thread and on the writer thread.
+    xoj::canvas::FrameRateMeter renderMeter;
+    xoj::canvas::FrameRateMeter outputMeter;
+
     std::thread writerThread;
 
 #ifdef ENABLE_AUDIO

@@ -7,8 +7,9 @@
 
 #include "ProjectorWindow.h"
 
-#include <algorithm>     // for clamp, max, min
-#include <string>        // for string
+#include <algorithm>  // for clamp, max, min
+#include <string>     // for string
+#include <utility>    // for move
 
 #include "control/Control.h"                 // for Control
 #include "control/actions/ActionDatabase.h"  // for ActionDatabase
@@ -380,6 +381,7 @@ void ProjectorWindow::drawPage(cairo_t* cr, int width, int height) {
     this->shownPage = layout.page;
 
     drawSafeArea(cr, layout.x, layout.y, layout.width, layout.height);
+    drawFrameRate(cr, width, height);
 }
 
 void ProjectorWindow::drawSafeArea(cairo_t* cr, double x, double y, double areaWidth, double areaHeight) {
@@ -417,12 +419,87 @@ constexpr guint REDRAW_INTERVAL = 33;
 
 /// How long the projector may go without repainting, whatever it has been told. Microseconds.
 constexpr gint64 MAX_REDRAW_GAP = 250 * 1000;
+
+/// How often the frame rate indicator's text is worked out again. Microseconds.
+constexpr gint64 FRAME_RATE_TEXT_INTERVAL = 250 * 1000;
 }  // namespace
+
+auto ProjectorWindow::buildFrameRateText() const -> std::string {
+    // While a video is being recorded the rate that matters is the recording's, not this window's:
+    // it is the one that decides whether the file stutters. The tag says which is being shown, so
+    // that 30 during a 60 fps recording can never be mistaken for the recording faltering.
+    const bool recording = control->getVideoTargetFrameRate() > 0;
+    const double rate = recording ? control->getVideoFrameRate() : this->previewMeter.rate();
+    if (rate <= 0.0) {
+        // Nothing measured yet -- half a second after opening the window, or after starting a
+        // recording. Saying so as "0.0 fps" would be a false alarm, so the last reading stands.
+        return this->frameRateText;
+    }
+
+    char buffer[32];
+    g_snprintf(buffer, sizeof(buffer), recording ? "REC %.1f fps" : "%.1f fps", rate);
+    return buffer;
+}
+
+void ProjectorWindow::drawFrameRate(cairo_t* cr, int width, int height) {
+    if (this->frameRateText.empty()) {
+        return;
+    }
+
+    // Sized against the window rather than fixed, so it stays readable on a projector filling a
+    // second display and stays out of the way in a small one parked in a corner.
+    const double fontSize = std::clamp(height / 34.0, 11.0, 24.0);
+    const double margin = std::max(6.0, fontSize * 0.5);
+
+    cairo_save(cr);
+    cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fontSize);
+
+    cairo_text_extents_t extents{};
+    cairo_text_extents(cr, this->frameRateText.c_str(), &extents);
+
+    const double padX = fontSize * 0.5;
+    const double padY = fontSize * 0.3;
+    const double boxWidth = extents.width + 2 * padX;
+    const double boxHeight = fontSize + 2 * padY;
+    const double boxX = width - margin - boxWidth;
+    const double boxY = margin;
+
+    // A plate behind the text, because the page underneath is usually white and white-on-white is
+    // no indicator at all.
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.55);
+    cairo_rectangle(cr, boxX, boxY, boxWidth, boxHeight);
+    cairo_fill(cr);
+
+    // Amber below nine tenths of the rate being aimed for, red below six -- the same idea as OBS
+    // colouring its dropped-frame count, so that a glance is enough and reading the number is not.
+    const int target = control->getVideoTargetFrameRate();
+    const double rate = target > 0 ? control->getVideoFrameRate() : this->previewMeter.rate();
+    const double expected = target > 0 ? target : 1000.0 / REDRAW_INTERVAL;
+    if (rate <= 0.0) {
+        // No reading yet; the text on screen is the previous one, so colour it as it was.
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.85);
+    } else if (rate < expected * 0.6) {
+        cairo_set_source_rgb(cr, 1.0, 0.35, 0.30);
+    } else if (rate < expected * 0.9) {
+        cairo_set_source_rgb(cr, 1.0, 0.72, 0.20);
+    } else {
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.85);
+    }
+
+    cairo_move_to(cr, boxX + padX - extents.x_bearing, boxY + padY - extents.y_bearing);
+    cairo_show_text(cr, this->frameRateText.c_str());
+    cairo_restore(cr);
+}
 
 void ProjectorWindow::queueRedraw() { this->needsRedraw = true; }
 
 void ProjectorWindow::startRedrawClock() {
     if (this->redrawTimer == 0) {
+        // A rate measured before the window was last closed says nothing about now.
+        this->previewMeter.reset();
+        this->frameRateText.clear();
+        this->frameRateTextAt = 0;
         this->needsRedraw = true;
         this->redrawTimer = g_timeout_add(REDRAW_INTERVAL, &ProjectorWindow::onRedrawTick, this);
     }
@@ -442,6 +519,26 @@ auto ProjectorWindow::onRedrawTick(gpointer data) -> gboolean {
     }
 
     const gint64 now = g_get_monotonic_time();
+    self->previewMeter.tick();
+
+    // The indicator is the one thing on screen that has to keep changing on a page nobody is
+    // touching, so it asks for its own repaints -- but only when the reading it would show has
+    // actually changed, which on a healthy machine is a few times a minute rather than thirty times
+    // a second.
+    if (self->control->getSettings()->isShowFrameRate()) {
+        if (now - self->frameRateTextAt >= FRAME_RATE_TEXT_INTERVAL) {
+            self->frameRateTextAt = now;
+            std::string text = self->buildFrameRateText();
+            if (text != self->frameRateText) {
+                self->frameRateText = std::move(text);
+                self->needsRedraw = true;
+            }
+        }
+    } else if (!self->frameRateText.empty()) {
+        self->frameRateText.clear();
+        self->needsRedraw = true;
+    }
+
     // The second condition is the safety net, and it is the reason this window can be trusted as a
     // preview: a change that reached the page by a route nobody reports -- and there are such
     // routes, an undo used to be one -- is on screen a quarter of a second later rather than

@@ -347,6 +347,16 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
                                       "capture wide enough to include the projector window would of course show it."));
         gtk_box_pack_start(GTK_BOX(content), this->cbProjectorShowSafeArea, FALSE, TRUE, 0);
 
+        this->cbShowFrameRate = gtk_check_button_new_with_label(_("Show the frame rate"));
+        gtk_widget_set_tooltip_text(
+                this->cbShowFrameRate,
+                _("Puts the frame rate in the corner of the projector window and beside the record button, the way "
+                  "OBS keeps it in its status bar. While a video is being recorded it is the recording's own rate: a "
+                  "figure below the one set above means the machine is not keeping up and the file is repeating "
+                  "frames. Like the safe area, it is drawn on the projector's picture only and is never encoded into "
+                  "the recording."));
+        gtk_box_pack_start(GTK_BOX(content), this->cbShowFrameRate, FALSE, TRUE, 0);
+
         GtkWidget* grid = makeGrid();
         int row = 0;
 
@@ -526,6 +536,7 @@ void RecordingSettingsPanel::load(const Settings& settings) {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbProjectorShowSafeArea), settings.isProjectorShowSafeArea());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spProjectorSafeAreaHeight),
                               settings.getProjectorSafeAreaHeight());
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbShowFrameRate), settings.isShowFrameRate());
 
     GdkRGBA background = Util::rgb_to_GdkRGBA(settings.getProjectorBackgroundColor());
     gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(this->btProjectorBackground), &background);
@@ -575,6 +586,7 @@ void RecordingSettingsPanel::save(Settings& settings) {
     settings.setProjectorShowSafeArea(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbProjectorShowSafeArea)));
     settings.setProjectorSafeAreaHeight(
             gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spProjectorSafeAreaHeight)));
+    settings.setShowFrameRate(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbShowFrameRate)));
 
     GdkRGBA background{};
     gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(this->btProjectorBackground), &background);

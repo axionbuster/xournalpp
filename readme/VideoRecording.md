@@ -222,12 +222,47 @@ question of whether the line's own rows were inside or outside the covered strip
 The shading is drawn by `ProjectorWindow` and by nothing else. It cannot reach the recording, which
 is drawn separately and never sees anything the projector does.
 
+## The frame rate indicator
+
+The projector puts the frame rate in its top-right corner and the record button repeats it beside
+the clock, in the spirit of OBS's status bar. It is switched on by default and turned off under
+**Preferences > Video Recording > Projector window**.
+
+The reading says which rate it is showing, because two different ones matter at different times:
+
+- **`REC 59.8 fps`** while a video is being recorded -- the recording's own rate. Frames are drawn
+  on the user interface thread, so this falling below the configured rate says that thread is not
+  keeping up, and every frame it misses is a frame the encoder repeats. That is the whole reason
+  for the feature: a lecture that stuttered is worth knowing about while it is still being given.
+- **`29.9 fps`** with nothing being recorded -- the projector's redraw clock, which runs at 30 Hz.
+
+What is measured on the projector's side is the clock, not the paints. The window only repaints
+when the page has changed, so counting paints would read a few frames a second on a page nobody is
+writing on -- correct, and indistinguishable from a fault. The clock ticks at a fixed rate whatever
+the page is doing, and falls behind exactly when the machine is too busy, which is the thing worth
+warning about.
+
+Both numbers come from `xoj::canvas::FrameRateMeter`, which counts ticks in a sliding one-second
+window. A lifetime average would barely move for a stall that lasted a minute, and a window makes
+the reading fall away on its own when ticks stop instead of freezing at the last healthy value.
+Nothing is reported for the first half second of measuring: a rate divided out of one or two
+samples is noise -- the first reading of a 30 Hz clock came out as a million -- and the indicator
+holds its previous text rather than showing a figure it cannot stand behind.
+
+White above nine tenths of the rate being aimed for, amber below that, red below six tenths.
+
+**None of it reaches the recording.** The readout is painted by `ProjectorWindow` after the page,
+onto the projector's own picture; `VideoRecorder` draws its frames separately and calls nothing in
+that file. The indicator asks for its own repaints only when the text it would show has actually
+changed, which on a healthy machine is a few times a minute rather than thirty times a second.
+
 ## The buttons
 
 Recording is started and stopped from the toolbar's audio group, and both buttons there mean what
 they say during a recording:
 
-- **Record** turns red and counts, `0:07`, `12:40`, `1:07:24` past an hour. A toggle's pressed-in
+- **Record** turns red and counts, `0:07`, `12:40`, `1:07:24` past an hour, with the frame rate
+  beside it while a video is being written. A toggle's pressed-in
   look is easy to miss across a wide toolbar, and nothing else in the window says how far into a
   take you are -- which are exactly the two mistakes a recording invites: talking for ten minutes
   to a recorder that was never started, and leaving one running long after the lecture ended. The
@@ -246,8 +281,8 @@ they say during a recording:
 | `src/core/audio/PipedAudioSource.{h,cpp}` | the microphone, as raw samples on a pipe |
 | `src/core/gui/toolbarMenubar/RecordButton.{h,cpp}` | the red, counting record button |
 | `resources/rnnoise/sh.rnnn` | the RNNoise model, shipped in the bundle |
-| `src/core/gui/CanvasFrame.{h,cpp}` | the one function that draws "the page, alone", and its frame cache |
-| `src/core/gui/ProjectorWindow.{h,cpp}` | the projector window and the caption guide |
+| `src/core/gui/CanvasFrame.{h,cpp}` | the one function that draws "the page, alone", its frame cache and the frame rate meter |
+| `src/core/gui/ProjectorWindow.{h,cpp}` | the projector window, the caption guide and the frame rate indicator |
 | `src/core/gui/dialog/RecordingSettingsPanel.{h,cpp}` | the preferences page |
 | `src/core/control/Control.cpp` | `startRecording` / `stopRecording`, projector lifetime |
 

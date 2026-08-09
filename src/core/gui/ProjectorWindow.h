@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstddef>  // for size_t
+#include <string>   // for string
 
 #include <gtk/gtk.h>  // for GtkWidget, GtkWindow
 
@@ -126,6 +127,18 @@ private:
      */
     void drawSafeArea(cairo_t* cr, double x, double y, double areaWidth, double areaHeight);
 
+    /**
+     * Put the frame rate in the corner of the window, the way OBS keeps it in its status bar.
+     *
+     * A preview aid, and only that: it is painted over the finished picture, after the page has been
+     * drawn, and the encoder is fed its own frames by VideoRecorder, which never calls anything in
+     * this file. What the presenter sees and what the file contains differ by this readout alone.
+     */
+    void drawFrameRate(cairo_t* cr, int width, int height);
+
+    /// The reading as it should currently be shown: "REC 59.8 fps" while recording, "29.9 fps" if not.
+    std::string buildFrameRateText() const;
+
     Control* control;
 
     GtkWidget* window = nullptr;
@@ -151,6 +164,25 @@ private:
 
     /// The page as it was last drawn. See xoj::canvas::FrameCache.
     xoj::canvas::FrameCache frameCache;
+
+    /**
+     * How fast the redraw clock is really ticking, which is what the indicator shows when nothing is
+     * being recorded.
+     *
+     * It is the clock rather than the paints that is measured, and deliberately: the projector only
+     * repaints when the page has changed, so counting paints would read a few frames a second on a
+     * page nobody is writing on and look like a fault. The clock ticks at a fixed rate whatever the
+     * page is doing, and falls behind exactly when the user interface is too busy to keep up -- the
+     * one thing the number is there to warn about.
+     */
+    xoj::canvas::FrameRateMeter previewMeter;
+
+    /**
+     * The indicator's text, recomputed a few times a second. Kept rather than built while painting,
+     * so that a reading which has not changed does not cost a repaint of the whole window.
+     */
+    std::string frameRateText;
+    gint64 frameRateTextAt = 0;
 
     /**
      * The page the last frame drew. Kept so that repaint notifications -- which arrive while the
