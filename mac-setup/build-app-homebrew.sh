@@ -20,6 +20,17 @@
 #
 #     xattr -dr com.apple.quarantine /Applications/Xournal++.app
 #
+# Build speed: the project's own CMakeLists precompile GTK's headers, which is
+# most of what a file costs to compile. The other half is ccache, which is not
+# automatic -- pass -DCMAKE_CXX_COMPILER_LAUNCHER=ccache when configuring, as
+# the message below does, and set it up once with:
+#
+#     brew install ccache
+#     ccache --set-config=sloppiness=pch_defines,time_macros
+#
+# That sloppiness setting is not optional. Without it ccache refuses to cache
+# any compilation that uses a precompiled header, which here means all of them.
+#
 # Usage:
 #   mac-setup/build-app-homebrew.sh [build-dir] [output-dir]
 
@@ -38,7 +49,8 @@ die() { echo "build-app-homebrew: $*" >&2; exit 1; }
 
 [ -x "$BUILD_DIR/xournalpp" ] || die "no binary at $BUILD_DIR/xournalpp -- build first:
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \\
-        -DCMAKE_PREFIX_PATH=$BREW_PREFIX -DENABLE_FLOAT_FROM_CHARS=OFF
+        -DCMAKE_PREFIX_PATH=$BREW_PREFIX -DENABLE_FLOAT_FROM_CHARS=OFF \\
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
   cmake --build build -j"
 
 echo "==> clean"
