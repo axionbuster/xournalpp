@@ -81,6 +81,12 @@ private:
     /// Constrain resizing to the recording's aspect ratio, or release the constraint.
     void applyAspectRatioHint();
 
+    /**
+     * Set the native window's stacking level, where the platform needs it said directly.
+     * A no-op everywhere gtk_window_set_keep_above is sufficient on its own.
+     */
+    void applyNativeWindowLevel(bool keepAbove);
+
     void queueRedraw();
 
 

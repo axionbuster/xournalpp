@@ -299,6 +299,12 @@ auto ScreenRecorderConfig::buildCommandLine(const fs::path& file) const -> std::
     argv.emplace_back(captureCursor ? "1" : "0");
     argv.emplace_back("-framerate");
     argv.emplace_back(std::to_string(frameRate));
+    // Asked for explicitly because otherwise ffmpeg requests yuv420p, is told by the device that it
+    // cannot have it, and settles on uyvy422 -- which then has to be converted for the encoder on
+    // every frame. nv12 is both offered by the screen input and what the hardware H.264 encoder
+    // wants, so naming it removes a full-frame colour conversion at 60 fps.
+    argv.emplace_back("-pixel_format");
+    argv.emplace_back("nv12");
     argv.emplace_back("-i");
     argv.emplace_back(std::to_string(videoDevice) + ":" + (audioDevice < 0 ? "none" : std::to_string(audioDevice)));
 #elif defined(G_OS_WIN32)

@@ -23,6 +23,18 @@
 #include "util/i18n.h"                  // for _
 #include "view/DocumentView.h"          // for DocumentView
 
+#ifdef GDK_WINDOWING_QUARTZ
+#include <objc/message.h>   // for objc_msgSend
+#include <objc/runtime.h>   // for sel_registerName
+
+/**
+ * Declared here rather than included. The real declaration lives in
+ * <gdk/quartz/gdkquartz-cocoa-access.h>, which returns NSWindow* and therefore only compiles in
+ * Objective-C. The pointer is opaque to us either way, and the ABI is identical.
+ */
+extern "C" void* gdk_quartz_window_get_nswindow(GdkWindow* window);
+#endif
+
 // ===========================================================================================
 // 1. Construction
 // ===========================================================================================
@@ -67,10 +79,47 @@ ProjectorWindow::~ProjectorWindow() {
 
 void ProjectorWindow::applySettings() {
     Settings* settings = control->getSettings();
+    const bool keepAbove = settings->isProjectorKeepAbove();
 
-    gtk_window_set_keep_above(GTK_WINDOW(this->window), settings->isProjectorKeepAbove() ? TRUE : FALSE);
+    gtk_window_set_keep_above(GTK_WINDOW(this->window), keepAbove ? TRUE : FALSE);
+    applyNativeWindowLevel(keepAbove);
+
     applyAspectRatioHint();
     queueRedraw();
+}
+
+void ProjectorWindow::applyNativeWindowLevel(bool keepAbove) {
+#ifdef GDK_WINDOWING_QUARTZ
+    // gtk_window_set_keep_above alone is not enough here. It holds on the first showing, but a
+    // projector that has been closed and reopened comes back at the ordinary window level: GtkWindow
+    // caches the flag and skips the backend call, so the freshly ordered-in native window never
+    // learns about it. The result is a projector that looks right for as long as it keeps focus and
+    // then silently sinks behind the main window -- during a lecture, which is the worst time to
+    // find out. Setting the level on the native window directly is unconditional and settles it.
+    //
+    // Reached through the Objective-C runtime rather than an Objective-C++ file, to keep this
+    // translation unit plain C++ for one message send.
+    GdkWindow* gdkWindow = gtk_widget_get_window(this->window);
+    if (gdkWindow == nullptr) {
+        return;  // not realized yet; show() calls this again once it is
+    }
+
+    void* nsWindow = gdk_quartz_window_get_nswindow(gdkWindow);
+    if (nsWindow == nullptr) {
+        return;
+    }
+
+    // NSFloatingWindowLevel and NSNormalWindowLevel, which are plain integers rather than symbols
+    // we could link against from here.
+    constexpr long NS_FLOATING_WINDOW_LEVEL = 3;
+    constexpr long NS_NORMAL_WINDOW_LEVEL = 0;
+
+    using SetLevelFn = void (*)(void*, SEL, long);
+    reinterpret_cast<SetLevelFn>(objc_msgSend)(nsWindow, sel_registerName("setLevel:"),
+                                               keepAbove ? NS_FLOATING_WINDOW_LEVEL : NS_NORMAL_WINDOW_LEVEL);
+#else
+    (void)keepAbove;
+#endif
 }
 
 // ===========================================================================================
@@ -83,13 +132,19 @@ void ProjectorWindow::show() {
         return;
     }
 
-    applySettings();
     gtk_widget_show_all(this->window);
     this->visible = true;
 
     // After the window is on screen: gtk_window_move on an unrealized window is advisory at best,
     // and the size has to be known before the position can be clamped onto the monitor.
     restoreGeometry();
+
+    // Also after mapping, and this ordering is load-bearing. On the quartz backend keep-above is an
+    // NSWindow level, and a level set while the window is unmapped does not survive the next map --
+    // so a projector that had been closed and reopened would silently stop floating, which is
+    // exactly the state it is in during a lecture.
+    applySettings();
+
     gtk_window_present(GTK_WINDOW(this->window));
 }
 
