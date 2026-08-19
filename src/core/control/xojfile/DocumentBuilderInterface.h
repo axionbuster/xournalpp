@@ -24,6 +24,7 @@
 
 class LineStyle;
 class PageType;
+struct LineShape;
 class Point;
 class StrokeCapStyle;
 class StrokeTool;
@@ -49,6 +50,13 @@ public:
     virtual void finalizeLayer() = 0;
     virtual void addStroke(StrokeTool tool, Color color, double width, int fill, StrokeCapStyle capStyle,
                            const LineStyle& lineStyle, fs::path filename, size_t timestamp) = 0;
+    /**
+     * Attach line shape metadata to the stroke currently being built.
+     *
+     * Fork-only; called between addStroke() and finalizeStroke(), and only for the strokes
+     * that carry the fork's "shape" and "anchors" attributes.
+     */
+    virtual void setStrokeLineShape(const LineShape& shape) = 0;
     virtual void setStrokePoints(std::vector<Point> pointVector, bool hasPressure) = 0;
     virtual void finalizeStroke() = 0;
     virtual void addText(std::string font, double size, double x, double y, Color color, std::optional<double> wrap,

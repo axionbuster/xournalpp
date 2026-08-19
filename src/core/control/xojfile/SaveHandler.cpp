@@ -25,6 +25,7 @@
 #include "model/Font.h"                        // for XojFont
 #include "model/Image.h"                       // for Image
 #include "model/Layer.h"                       // for Layer
+#include "model/LineShape.h"                   // for LineShape, LineShapeType
 #include "model/LineStyle.h"                   // for LineStyle
 #include "model/Link.h"                        // for Link
 #include "model/PageType.h"                    // for PageType
@@ -63,7 +64,7 @@ void SaveHandler::prepareSave(const Document* doc, const fs::path& target) {
 
     root.reset(new XmlNode(TAG_NAMES[TagType::XOURNAL]));
 
-    writeHeader();
+    writeHeader(doc);
 
     auto preview = doc->getPreview();
     if (preview) {
@@ -83,9 +84,33 @@ void SaveHandler::prepareSave(const Document* doc, const fs::path& target) {
     }
 }
 
-void SaveHandler::writeHeader() {
+auto SaveHandler::hasForkFormatExtensions(const Document* doc) -> bool {
+    // Single choke point for "does this document need the fork's file format version?".
+    // When another fork-only construct is added — styled text runs, say — OR its test in here
+    // rather than deciding the version anywhere else.
+    for (size_t i = 0; i < doc->getPageCount(); i++) {
+        ConstPageRef p = doc->getPage(i);
+        for (const Layer* l: p->getLayersView()) {
+            for (const auto& e: l->getElementsView()) {
+                if (e->getType() == ELEMENT_STROKE && dynamic_cast<const Stroke*>(e)->getLineShape()) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+auto SaveHandler::fileFormatVersion(const Document* doc) -> int {
+    return hasForkFormatExtensions(doc) ? FILE_FORMAT_VERSION : STOCK_FILE_FORMAT_VERSION;
+}
+
+void SaveHandler::writeHeader(const Document* doc) {
     this->root->setAttrib(xoj::xml_attrs::CREATOR_STR, PROJECT_STRING);
-    this->root->setAttrib(xoj::xml_attrs::FILEVERSION_STR, FILE_FORMAT_VERSION);
+    // A document carrying fork-only constructs declares the fork's file format version, so that
+    // a stock Xournal++ build warns before opening it. A document without any of them declares
+    // the stock version and is written exactly as stock Xournal++ would write it.
+    this->root->setAttrib(xoj::xml_attrs::FILEVERSION_STR, fileFormatVersion(doc));
     this->root->addChild(new XmlTextNode(TAG_NAMES[TagType::TITLE],
                                          std::string{"Xournal++ document - see "} + PROJECT_HOMEPAGE_URL));
 }
@@ -162,6 +187,13 @@ void SaveHandler::visitStrokeExtended(XmlPointNode* stroke, const Stroke* s) {
 
     if (s->getLineStyle().hasDashes()) {
         stroke->setAttrib(xoj::xml_attrs::STYLE_STR, StrokeStyle::formatStyle(s->getLineStyle()));
+    }
+
+    if (const auto& shape = s->getLineShape()) {
+        // Fork-only attributes; see the comment on SHAPE_STR in XmlAttrs.h
+        stroke->setAttrib(xoj::xml_attrs::SHAPE_STR, LineShapeType::NAMES[shape->type]);
+        stroke->setAttrib(xoj::xml_attrs::ANCHORS_STR, std::vector<double>{shape->anchorA.x, shape->anchorA.y,
+                                                                           shape->anchorB.x, shape->anchorB.y});
     }
 }
 

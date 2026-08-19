@@ -1,6 +1,7 @@
 #include "control/xojfile/XmlParser.h"
 
 #include <algorithm>    // for all_of
+#include <array>        // for array
 #include <cctype>       // for isspace
 #include <cstddef>      // for size_t
 #include <ranges>       // for all_of, reverse_view
@@ -18,6 +19,7 @@
 #include "control/xojfile/XmlAttrs.h"                  // for XmlAttrs
 #include "control/xojfile/XmlParserHelper.h"           // for getAttrib...
 #include "control/xojfile/XmlTags.h"                   // for XmlTags
+#include "model/LineShape.h"                           // for LineShape, LineShapeType
 #include "model/PageType.h"                            // for PageType
 #include "model/Point.h"                               // for Point
 #include "model/Stroke.h"                              // for StrokeTool, StrokeCapStyle
@@ -376,6 +378,29 @@ void XmlParser::parseStrokeTag(const XmlParserHelper::AttributeMap& attributeMap
     // forward data to builder
     this->builder.addStroke(tool, color, width, fill, capStyle, lineStyle, std::move(this->tempFilename),
                             this->tempTimestamp);
+
+    // line shape metadata (fork-only; see the comment on SHAPE_STR in XmlAttrs.h)
+    if (const auto shapeType = XmlParserHelper::getAttrib<LineShapeType>(xoj::xml_attrs::SHAPE_STR, attributeMap)) {
+        if (const auto anchorsSV =
+                    XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::ANCHORS_STR, attributeMap)) {
+            auto ait = anchorsSV->data();
+            const auto aend = anchorsSV->data() + anchorsSV->size();
+            std::array<double, 4> anchors{};
+            size_t count = 0;
+            while (count < anchors.size() && parseDouble(ait, aend, anchors[count])) {
+                count++;
+            }
+            if (count == anchors.size()) {
+                this->builder.setStrokeLineShape(
+                        LineShape{*shapeType, Point(anchors[0], anchors[1]), Point(anchors[2], anchors[3])});
+            } else {
+                this->builder.logError(_("Found a shaped stroke whose \"anchors\" attribute does not hold four "
+                                         "coordinates. Discarding the shape"));
+            }
+        } else {
+            this->builder.logError(_("Found a shaped stroke without an \"anchors\" attribute. Discarding the shape"));
+        }
+    }
 
     // Reset timestamp, filename was already moved from
     this->tempTimestamp = 0;

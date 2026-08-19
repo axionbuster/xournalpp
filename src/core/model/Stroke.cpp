@@ -105,6 +105,9 @@ auto Stroke::cloneStroke() const -> std::unique_ptr<Stroke> {
     s->boundingBox = this->boundingBox;
     s->snappedBounds = this->snappedBounds;
     s->sizeCalculated = this->sizeCalculated;
+    // A full copy keeps the line shape metadata: the anchors still describe its geometry.
+    // The partial clones below deliberately do not.
+    s->lineShape = this->lineShape;
     return s;
 }
 
@@ -180,6 +183,18 @@ void Stroke::serialize(ObjectOutputStream& out) const {
 
     this->lineStyle.serialize(out);
 
+    // Optional line shape metadata, appended after every field a stock Xournal++ build writes.
+    // A stroke without it writes nothing at all here, so its blob is byte-identical to a stock
+    // one and still pastes into a stock build running alongside this fork. A stroke that has it
+    // is a fork-only construct, and pasting one into a stock build does not work.
+    if (this->lineShape) {
+        out.writeInt(static_cast<int>(this->lineShape->type));
+        out.writeDouble(this->lineShape->anchorA.x);
+        out.writeDouble(this->lineShape->anchorA.y);
+        out.writeDouble(this->lineShape->anchorB.x);
+        out.writeDouble(this->lineShape->anchorB.y);
+    }
+
     out.endObject();
 }
 
@@ -198,6 +213,27 @@ void Stroke::readSerialized(ObjectInputStream& in) {
 
     in.readData(this->points);
     this->lineStyle.readSerialized(in);
+
+    // Optional line shape metadata: absent both from a stroke that has none and from a blob
+    // written by a stock Xournal++ build, which ends the object right here.
+    this->lineShape.reset();
+    if (!in.atEndOfObject()) {
+        const int shapeType = in.readInt();
+        // Read the anchors whatever the type turns out to be, so that a value this build does
+        // not know still leaves the stream positioned at the end of the object.
+        Point anchorA;
+        Point anchorB;
+        anchorA.x = in.readDouble();
+        anchorA.y = in.readDouble();
+        anchorB.x = in.readDouble();
+        anchorB.y = in.readDouble();
+        if (shapeType < 0 || static_cast<size_t>(shapeType) >= LineShapeType::NAMES.size()) {
+            // Cast only once the value is known to be one of the enumerators
+            g_warning("Unknown LineShapeType::Value: %d. Dropping the line shape", shapeType);
+        } else {
+            this->lineShape = LineShape{static_cast<LineShapeType::Value>(shapeType), anchorA, anchorB};
+        }
+    }
 
     in.endObject();
 }
@@ -326,6 +362,12 @@ void Stroke::move(double dx, double dy) {
         point.x += dx;
         point.y += dy;
     }
+    if (this->lineShape) {
+        this->lineShape->anchorA.x += dx;
+        this->lineShape->anchorA.y += dy;
+        this->lineShape->anchorB.x += dx;
+        this->lineShape->anchorB.y += dy;
+    }
     this->boundingBox = this->boundingBox.translated(dx, dy);
     Element::snappedBounds = Element::snappedBounds.translated(dx, dy);
 }
@@ -340,8 +382,18 @@ void Stroke::rotate(double x0, double y0, double th) {
     for (auto&& p: points) {
         cairo_matrix_transform_point(&rotMatrix, &p.x, &p.y);
     }
+    transformLineShapeAnchors(&rotMatrix);
     this->sizeCalculated = false;
     // Width and Height will likely be changed after this operation
+}
+
+void Stroke::transformLineShapeAnchors(const cairo_matrix_t* matrix) {
+    // The anchors are page coordinates like the points, so they follow every transform applied
+    // to the stroke. Otherwise moving or scaling a shape would leave its grabbable ends behind.
+    if (this->lineShape) {
+        cairo_matrix_transform_point(matrix, &this->lineShape->anchorA.x, &this->lineShape->anchorA.y);
+        cairo_matrix_transform_point(matrix, &this->lineShape->anchorB.x, &this->lineShape->anchorB.y);
+    }
 }
 
 void Stroke::scale(double x0, double y0, double fx, double fy, double rotation, bool restoreLineWidth) {
@@ -361,10 +413,17 @@ void Stroke::scale(double x0, double y0, double fx, double fy, double rotation, 
             p.z *= fz;
         }
     }
+    transformLineShapeAnchors(&scaleMatrix);
     this->width *= fz;
 
     this->sizeCalculated = false;
 }
+
+auto Stroke::getLineShape() const -> const std::optional<LineShape>& { return this->lineShape; }
+
+void Stroke::setLineShape(const LineShape& shape) { this->lineShape = shape; }
+
+void Stroke::clearLineShape() { this->lineShape.reset(); }
 
 auto Stroke::hasPressure() const -> bool {
     if (!this->points.empty()) {

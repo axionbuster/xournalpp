@@ -36,6 +36,16 @@ public:
     std::string getNextObjectName();
     void endObject();
 
+    /**
+     * @brief Is the next item in the stream the end of the current object?
+     *
+     * Peeks without consuming anything, so that a reader can treat a trailing field as optional:
+     * a writer that does not have that field simply ends the object where it would have been.
+     * Returns false at the end of the stream, leaving the ensuing endObject() to report the
+     * truncation.
+     */
+    bool atEndOfObject();
+
     int readInt();
     uint32_t readUInt();
     double readDouble();

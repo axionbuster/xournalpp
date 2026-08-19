@@ -4,11 +4,11 @@
 #include <cmath>      // for hypot, atan2, M_PI
 
 #include "control/Control.h"                       // for Control
-#include "control/ToolHandler.h"                   // for ToolHandler
 #include "control/settings/Settings.h"             // for Settings
 #include "control/tools/ArrowHead.h"               // for arrowhead::append
 #include "control/tools/BaseShapeHandler.h"        // for BaseShapeHandler
 #include "control/tools/SnapToGridInputHandler.h"  // for SnapToGridInputHan...
+#include "model/LineShape.h"                       // for LineShape, LineShapeType
 #include "model/Point.h"                           // for Point
 #include "model/XojPage.h"                         // for XojPage
 #include "util/Range.h"                            // for Range
@@ -43,18 +43,27 @@ ExtendedLineHandler::~ExtendedLineHandler() = default;
 
 auto ExtendedLineHandler::createShape(bool isAltDown, bool isShiftDown, bool isControlDown)
         -> std::pair<std::vector<Point>, Range> {
-    const Point b = snappingHandler.snap(this->currPoint, this->startPoint, isAltDown);
-    const double dist = std::hypot(b.x - this->startPoint.x, b.y - this->startPoint.y);
+    const Point dragged = snappingHandler.snap(this->currPoint, this->startPoint, isAltDown);
+
+    // While drawing, the press point is the first anchor and the dragged point the second. When
+    // an existing shape is re-edited by its first anchor, the two swap roles: for a ray, that is
+    // how the origin can be moved while the arrow head end stays put.
+    const Point a = this->draggingFirstAnchor ? dragged : this->startPoint;
+    const Point b = this->draggingFirstAnchor ? this->startPoint : dragged;
+    this->anchorA = a;
+    this->anchorB = b;
+
+    const double dist = std::hypot(b.x - a.x, b.y - a.y);
 
     if (dist == 0.0) {
         // No direction to extend along yet
-        Range rg(this->startPoint.x, this->startPoint.y);
-        return {{this->startPoint, b}, rg};
+        Range rg(a.x, a.y);
+        return {{a, b}, rg};
     }
 
     // Unit vector pointing from the first towards the second anchor point
-    const double ux = (b.x - this->startPoint.x) / dist;
-    const double uy = (b.y - this->startPoint.y) / dist;
+    const double ux = (b.x - a.x) / dist;
+    const double uy = (b.y - a.y) / dist;
 
     const double overshoot = control->getSettings()->getExtendedLineOvershoot();
     const double pageWidth = this->page->getWidth();
@@ -66,13 +75,13 @@ auto ExtendedLineHandler::createShape(bool isAltDown, bool isShiftDown, bool isC
     const double endOvershoot = clipToPage(b, ux, uy, overshoot, pageWidth, pageHeight);
     const Point end(b.x + endOvershoot * ux, b.y + endOvershoot * uy);
 
-    Point begin = this->startPoint;
+    Point begin = a;
     if (this->bothDirections) {
-        const double beginOvershoot = clipToPage(this->startPoint, -ux, -uy, overshoot, pageWidth, pageHeight);
-        begin = Point(this->startPoint.x - beginOvershoot * ux, this->startPoint.y - beginOvershoot * uy);
+        const double beginOvershoot = clipToPage(a, -ux, -uy, overshoot, pageWidth, pageHeight);
+        begin = Point(a.x - beginOvershoot * ux, a.y - beginOvershoot * uy);
     }
 
-    const double thickness = control->getToolHandler()->getThickness();
+    const double thickness = this->getShapeThickness();
     const double shaftLength = std::hypot(end.x - begin.x, end.y - begin.y);
     const auto headSize = xoj::arrowhead::computeSize(shaftLength, thickness, this->bothDirections ? 0.5 : 0.8);
 
@@ -97,4 +106,9 @@ auto ExtendedLineHandler::createShape(bool isAltDown, bool isShiftDown, bool isC
     res.second = Range(minX->x, minY->y, maxX->x, maxY->y);
 
     return res;
+}
+
+auto ExtendedLineHandler::getLineShapeMetadata() const -> std::optional<LineShape> {
+    return xoj::lineshape::makeIfMeaningful(this->bothDirections ? LineShapeType::INFINITE_LINE : LineShapeType::RAY,
+                                            this->anchorA, this->anchorB);
 }

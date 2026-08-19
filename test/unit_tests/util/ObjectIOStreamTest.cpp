@@ -8,7 +8,9 @@
 #include <cairo.h>
 #include <gtest/gtest.h>
 
+#include "model/LineShape.h"
 #include "model/Link.h"
+#include "model/Point.h"
 #include "model/Stroke.h"
 #include "model/TextAlignment.h"
 #include "util/StringUtils.h"
@@ -344,6 +346,13 @@ void assertStrokeEquality(const Stroke& stroke1, const Stroke& stroke2) {
     EXPECT_EQ(stroke1.getAudioFilename(), stroke2.getAudioFilename());
     EXPECT_EQ(stroke1.getToolType(), stroke2.getToolType());
     EXPECT_EQ(stroke1.getFill(), stroke2.getFill());
+
+    EXPECT_EQ(stroke1.getLineShape().has_value(), stroke2.getLineShape().has_value());
+    if (stroke1.getLineShape() && stroke2.getLineShape()) {
+        EXPECT_EQ(stroke1.getLineShape()->type, stroke2.getLineShape()->type);
+        EXPECT_TRUE(stroke1.getLineShape()->anchorA.equalsPos(stroke2.getLineShape()->anchorA));
+        EXPECT_TRUE(stroke1.getLineShape()->anchorB.equalsPos(stroke2.getLineShape()->anchorB));
+    }
     EXPECT_EQ(stroke1.getWidth(), stroke2.getWidth());
 
     double avgPressure1 = stroke1.getAvgPressure();
@@ -422,6 +431,70 @@ TEST(UtilObjectIOStream, testReadStroke) {
         std::cerr << "InputStreamException testing stroke " << i << ": " << e.what() << std::endl;
         FAIL();
     }
+}
+
+TEST(UtilObjectIOStream, testReadStrokeLineShape) {
+    // The line shape metadata must survive the binary round trip, or clipboard and undo would
+    // lose the anchors that make a shape's ends grabbable.
+    const LineShapeType::Value types[] = {LineShapeType::RAY, LineShapeType::INFINITE_LINE, LineShapeType::ARROW,
+                                          LineShapeType::DOUBLE_ARROW};
+
+    std::vector<Stroke> strokes(std::size(types) + 1);
+    // strokes[0]: no line shape, to check the "absent" encoding next to the present ones
+    size_t index = 1;
+    for (const auto type: types) {
+        strokes[index].addPoint(Point(1., 2.));
+        strokes[index].addPoint(Point(41., 43.));
+        strokes[index].setWidth(3.5);
+        strokes[index].setLineShape(LineShape{type, Point(1., 2.), Point(38.25, 39.5)});
+        index++;
+    }
+
+    size_t i = 0;
+    try {
+        for (auto&& stroke: strokes) {
+            std::string out_string = serializeStroke(stroke);
+            ObjectInputStream istream;
+            istream.read(out_string.c_str(), out_string.size());
+
+            Stroke in_stroke;
+            in_stroke.readSerialized(istream);
+            assertStrokeEquality(stroke, in_stroke);
+            ++i;
+        }
+    } catch (const InputStreamException& e) {
+        std::cerr << "InputStreamException testing shaped stroke " << i << ": " << e.what() << std::endl;
+        FAIL();
+    }
+}
+
+TEST(UtilObjectIOStream, testAtEndOfObject) {
+    // Optional trailing fields rely on this: a reader must be able to tell a field that is
+    // there from an object that simply ends, without consuming anything either way.
+    ObjectOutputStream outStream(new BinObjectEncoding);
+    outStream.writeObject("Test");
+    outStream.writeInt(42);
+    outStream.endObject();
+    outStream.writeObject("Empty");
+    outStream.endObject();
+
+    auto outStr = outStream.stealData();
+    std::string str{outStr->str, outStr->len};
+    g_string_free(outStr, true);
+
+    ObjectInputStream istream;
+    ASSERT_TRUE(istream.read(str.c_str(), str.size()));
+
+    istream.readObject("Test");
+    EXPECT_FALSE(istream.atEndOfObject());
+    EXPECT_EQ(42, istream.readInt());
+    EXPECT_TRUE(istream.atEndOfObject());
+    // Peeking left the position alone, so the end marker is still there to read
+    EXPECT_NO_THROW(istream.endObject());
+
+    istream.readObject("Empty");
+    EXPECT_TRUE(istream.atEndOfObject());
+    EXPECT_NO_THROW(istream.endObject());
 }
 
 TEST(UtilObjectIOStream, testReadLink) {

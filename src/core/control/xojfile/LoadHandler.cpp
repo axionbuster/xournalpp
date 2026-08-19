@@ -316,6 +316,11 @@ void LoadHandler::addStroke(StrokeTool tool, Color color, double width, int fill
     setAudioAttributes(*this->stroke, std::move(filename), timestamp);
 }
 
+void LoadHandler::setStrokeLineShape(const LineShape& shape) {
+    xoj_assert(this->stroke);
+    this->stroke->setLineShape(shape);
+}
+
 void LoadHandler::setStrokePoints(std::vector<Point> pointVector, bool hasPressure) {
     // Check if stroke still exists or has already been assigned points.
     // In corrupt files, this function may be called more than once, and the

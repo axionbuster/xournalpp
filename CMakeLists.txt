@@ -343,7 +343,11 @@ set(DEV_DEFAULT_PALETTE_FILE "xournal.gpl" CACHE STRING "Default Color Palette")
 set(DEV_PRINT_CONFIG_FILE "print-config.ini" CACHE STRING "Print config file name")
 set(DEV_METADATA_FILE "metadata.ini" CACHE STRING "Metadata file name")
 set(DEV_ERRORLOG_DIR "errorlogs" CACHE STRING "Directory where errorlogfiles will be placed")
-set(DEV_FILE_FORMAT_VERSION 5 CACHE STRING "File format version" FORCE)
+# Version 6 adds this fork's file format extensions (extra attributes on existing elements).
+# It is what this build ACCEPTS without the "file version mismatch" prompt; SaveHandler only
+# writes it for documents that actually use those extensions, and writes
+# SaveHandler::STOCK_FILE_FORMAT_VERSION for every other document.
+set(DEV_FILE_FORMAT_VERSION 6 CACHE STRING "File format version" FORCE)
 
 option(DEV_ENABLE_GCOV "Build with gcov support" OFF) # Enabel gcov support – expanded in src/
 

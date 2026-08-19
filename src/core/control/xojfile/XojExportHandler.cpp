@@ -30,7 +30,7 @@ void XojExportHandler::visitStrokeExtended(XmlPointNode* stroke, const Stroke* s
     // Line style is also not supported
 }
 
-void XojExportHandler::writeHeader() {
+void XojExportHandler::writeHeader(const Document* doc) {
     this->root->setAttrib(xoj::xml_attrs::CREATOR_STR, PROJECT_STRING);
     // Keep this version on 2, as this is anyway not read by Xournal
     this->root->setAttrib(xoj::xml_attrs::FILEVERSION_STR, "2");

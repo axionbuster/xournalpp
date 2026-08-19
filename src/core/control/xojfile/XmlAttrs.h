@@ -46,6 +46,24 @@ constexpr auto PRESSURES_STR = u8"pressures";
 constexpr auto FILL_STR = u8"fill";
 constexpr auto CAPSTYLE_STR = u8"capStyle";
 
+/*
+ * Fork-only stroke attributes, written only for strokes drawn by the line shape tools:
+ *
+ *     shape="ray|infiniteLine|arrow|doubleArrow"
+ *     anchors="ax ay bx by"
+ *
+ * `shape` names the kind of shape, `anchors` carries the two user-meaningful points in page
+ * coordinates as four numbers separated by single spaces (anchor A first). Both are always
+ * written together, and a stroke missing either of them loads as a plain stroke.
+ *
+ * Stock Xournal++ looks stroke attributes up by name (XmlParserHelper::AttributeMap) and
+ * never enumerates the ones it does not know, so it silently ignores these. A document
+ * containing them is nonetheless tagged with the fork's file format version — see
+ * SaveHandler::hasForkFormatExtensions().
+ */
+constexpr auto SHAPE_STR = u8"shape";
+constexpr auto ANCHORS_STR = u8"anchors";
+
 // text
 constexpr auto FONT_STR = u8"font";  // also in link
 constexpr auto SIZE_STR = u8"size";  // also in link

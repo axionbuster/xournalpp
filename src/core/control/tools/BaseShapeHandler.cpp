@@ -6,6 +6,7 @@
 #include <gdk/gdkkeysyms.h>  // for GDK_KEY_Alt_L, GDK_K...
 
 #include "control/Control.h"                       // for Control
+#include "control/ToolHandler.h"                   // for ToolHandler
 #include "control/layer/LayerController.h"         // for LayerController
 #include "control/settings/Settings.h"             // for Settings
 #include "control/tools/InputHandler.h"            // for InputHandler
@@ -17,6 +18,7 @@
 #include "model/Stroke.h"                          // for Stroke
 #include "model/XojPage.h"                         // for XojPage
 #include "undo/InsertUndoAction.h"                 // for InsertUndoAction
+#include "undo/ShapeEndpointUndoAction.h"          // for ShapeEndpointUndoAction
 #include "undo/UndoRedoHandler.h"                  // for UndoRedoHandler
 #include "util/Assert.h"                           // for xoj_assert
 #include "util/DispatchPool.h"                     // for DispatchPool
@@ -32,7 +34,15 @@ BaseShapeHandler::BaseShapeHandler(Control* control, const PageRef& page, bool f
     snappingHandler.setPageRef(page);
 }
 
-BaseShapeHandler::~BaseShapeHandler() = default;
+BaseShapeHandler::~BaseShapeHandler() {
+    // A handler dropped mid-drag (see the stale-handler cleanup in XojPageView::onButtonPressEvent)
+    // must not take a grabbed stroke with it.
+    restoreGrabbedStroke();
+}
+
+auto BaseShapeHandler::getShapeThickness() const -> double {
+    return this->stroke ? this->stroke->getWidth() : control->getToolHandler()->getThickness();
+}
 
 void BaseShapeHandler::updateShape(bool isAltDown, bool isShiftDown, bool isControlDown) {
     auto [shape, rg] = this->createShape(isAltDown, isShiftDown, isControlDown);
@@ -49,6 +59,37 @@ void BaseShapeHandler::cancelStroke() {
     repaintRange.addPadding(0.5 * this->stroke->getWidth());
     this->viewPool->dispatchAndClear(xoj::view::ShapeToolView::FINALIZATION_REQUEST, repaintRange);
     this->lastSnappingRange = Range();
+    restoreGrabbedStroke();
+}
+
+void BaseShapeHandler::grabExistingStroke(Layer* layer, InsertionPosition original, xoj::lineshape::Anchor grabbed) {
+    const auto* original_ = dynamic_cast<const Stroke*>(original.e.get());
+    xoj_assert(original_ && original_->getLineShape());
+    const LineShape& shape = *original_->getLineShape();
+
+    this->draggingFirstAnchor = grabbed == xoj::lineshape::Anchor::A;
+    this->startPoint = this->draggingFirstAnchor ? shape.anchorB : shape.anchorA;
+    // Start out exactly where the grabbed anchor already is, so that grabbing and letting go
+    // without dragging leaves the shape as it was.
+    this->currPoint = this->draggingFirstAnchor ? shape.anchorA : shape.anchorB;
+
+    this->grabbedLayer = layer;
+    this->grabbedOriginal = std::move(original);
+}
+
+void BaseShapeHandler::restoreGrabbedStroke() {
+    if (!this->grabbedOriginal.e) {
+        return;
+    }
+
+    Element* original = this->grabbedOriginal.e.get();
+    Document* doc = control->getDocument();
+    doc->lock();
+    this->grabbedLayer->insertElement(std::move(this->grabbedOriginal.e), this->grabbedOriginal.pos);
+    doc->unlock();
+    this->grabbedLayer = nullptr;
+
+    page->fireElementChanged(original);
 }
 
 auto BaseShapeHandler::onKeyEvent(const KeyEvent& event, bool pressed) -> bool {
@@ -81,6 +122,7 @@ auto BaseShapeHandler::onMotionNotifyEvent(const PositionInputData& pos, double 
         return true;
     }
     this->currPoint = newPoint;
+    this->grabbedStrokeMoved = true;
 
     this->updateShape(pos.isAltDown(), pos.isShiftDown(), pos.isControlDown());
 
@@ -98,23 +140,44 @@ void BaseShapeHandler::onButtonReleaseEvent(const PositionInputData& pos, double
         return;
     }
 
-    Layer* layer = page->getSelectedLayer();
+    if (this->grabbedOriginal.e && !this->grabbedStrokeMoved) {
+        // Grabbed an end and let go without dragging: leave the shape exactly as it was, with no
+        // undo entry. The preview drawn on press already matches it.
+        this->cancelStroke();
+        return;
+    }
 
     UndoRedoHandler* undo = control->getUndoRedoHandler();
 
     stroke->setPointVector(this->shape, &lastSnappingRange);
+    if (auto shapeMetadata = this->getLineShapeMetadata()) {
+        stroke->setLineShape(*shapeMetadata);
+    }
 
     Range repaintRange = lastSnappingRange;
     repaintRange.addPadding(0.5 * this->stroke->getWidth());
     this->viewPool->dispatchAndClear(xoj::view::ShapeToolView::FINALIZATION_REQUEST, repaintRange);
 
-    undo->addUndoAction(std::make_unique<InsertUndoAction>(page, layer, stroke.get()));
-
     auto ptr = stroke.get();
     Document* doc = control->getDocument();
-    doc->lock();
-    layer->addElement(std::move(stroke));
-    doc->unlock();
+
+    if (this->grabbedOriginal.e) {
+        // Re-edited an existing shape: put the replacement where the original was, and record a
+        // single undo action swapping the two. The original left the layer on button press.
+        undo->addUndoAction(
+                std::make_unique<ShapeEndpointUndoAction>(page, this->grabbedLayer, std::move(this->grabbedOriginal.e),
+                                                          ptr));
+        doc->lock();
+        this->grabbedLayer->insertElement(std::move(stroke), this->grabbedOriginal.pos);
+        doc->unlock();
+        this->grabbedLayer = nullptr;
+    } else {
+        Layer* layer = page->getSelectedLayer();
+        undo->addUndoAction(std::make_unique<InsertUndoAction>(page, layer, ptr));
+        doc->lock();
+        layer->addElement(std::move(stroke));
+        doc->unlock();
+    }
     page->fireElementChanged(ptr);
 
     control->getCursor()->updateCursor();
@@ -124,6 +187,19 @@ void BaseShapeHandler::onButtonPressEvent(const PositionInputData& pos, double z
     xoj_assert(this->viewPool->empty());
     this->buttonDownPoint.x = pos.x / zoom;
     this->buttonDownPoint.y = pos.y / zoom;
+
+    if (this->grabbedOriginal.e) {
+        // Re-editing an existing shape: the anchors were seeded by grabExistingStroke(), and the
+        // replacement inherits the original's color, width, fill and line style rather than the
+        // current tool's. Grabbing an end adjusts geometry, never style.
+        this->stroke = std::make_unique<Stroke>();
+        this->stroke->applyStyleFrom(dynamic_cast<const Stroke*>(this->grabbedOriginal.e.get()));
+        // Draw the preview straight away. The original left the layer on this very press, so
+        // without this the shape would vanish from the canvas for as long as the user holds
+        // still before moving — visible on a recording.
+        this->updateShape(pos.isAltDown(), pos.isShiftDown(), pos.isControlDown());
+        return;
+    }
 
     this->startPoint = snappingHandler.snapToGrid(this->buttonDownPoint, pos.isAltDown());
     this->currPoint = this->startPoint;

@@ -11,13 +11,15 @@
 
 #pragma once
 
-#include <vector>  // for vector
+#include <optional>  // for optional
+#include <vector>    // for vector
 
-#include "model/PageRef.h"  // for PageRef
+#include "model/LineShape.h"  // for LineShape
+#include "model/PageRef.h"    // for PageRef
+#include "model/Point.h"      // for Point
 
 #include "BaseShapeHandler.h"  // for BaseShapeHandler
 
-class Point;
 class Control;
 
 /**
@@ -41,5 +43,11 @@ public:
 private:
     auto createShape(bool isAltDown, bool isShiftDown, bool isControlDown)
             -> std::pair<std::vector<Point>, Range> override;
+    std::optional<LineShape> getLineShapeMetadata() const override;
+
     bool bothDirections = false;
+
+    /// The two dragged points, updated by createShape() and recorded on the stroke
+    Point anchorA;
+    Point anchorB;
 };
