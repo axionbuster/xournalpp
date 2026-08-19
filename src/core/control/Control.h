@@ -181,6 +181,34 @@ public:
 
     void fontChanged(const XojFont& font);      ///< Set the font after the user selected a font
 
+    /**
+     * Apply font preset `index` (0-based): its font goes through the same path as the font
+     * dialog, its color is applied to text only — the text tool, the text being edited and
+     * the selected text elements. The tool currently held (e.g. the pen) keeps its color.
+     * A slot the user never saved is left alone: applying it does nothing at all.
+     * Font and color change together, as a single undo step.
+     */
+    void applyFontPreset(size_t index);
+
+    /**
+     * Store into font preset `index` (0-based) the font and color the user currently sees:
+     * those of the text element being edited, or else the default font and the text tool's color
+     */
+    void saveFontPreset(size_t index);
+
+    /**
+     * Apply `color` to text only: the text tool, the selected text elements and the text being
+     * edited. Returns the undo action for the selected elements (null if none were recolored);
+     * the caller decides whether to push it on its own or to group it.
+     */
+    UndoActionPtr applyTextColor(Color color);
+
+    /**
+     * The body of fontChanged(), returning the undo action for the selected elements instead of
+     * pushing it (null if no text element was in the selection)
+     */
+    UndoActionPtr changeFont(const XojFont& font);
+
     void updatePageNumbers(size_t page, size_t pdfPage);
 
     /**

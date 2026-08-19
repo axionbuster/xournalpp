@@ -417,6 +417,12 @@ auto EditSelection::setLineStyle(LineStyle style) -> UndoActionPtr { return this
 auto EditSelection::setColor(Color color) -> UndoActionPtr { return this->contents->setColor(color); }
 
 /**
+ * Sets the color of all containing text elements, return an undo action
+ * (or nullptr if there are no Text elements)
+ */
+auto EditSelection::setTextColor(Color color) -> UndoActionPtr { return this->contents->setTextColor(color); }
+
+/**
  * Sets the font of all containing text elements, return an undo action
  * (or nullptr if there are no Text elements)
  */

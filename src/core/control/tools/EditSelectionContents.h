@@ -66,6 +66,12 @@ public:
     UndoActionPtr setColor(Color color);
 
     /**
+     * Sets the color of all containing text elements, return an undo action
+     * (or nullptr if there are no Text elements)
+     */
+    UndoActionPtr setTextColor(Color color);
+
+    /**
      * Sets the font of all containing text elements, return an undo action
      * (or nullptr if there are no Text elements)
      */

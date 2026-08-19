@@ -854,6 +854,47 @@
      <attribute name="action">win.select-font</attribute>
      <attribute name="accel">&lt;Ctrl&gt;&lt;Shift&gt;f</attribute>
     </item>
+    <submenu>
+     <attribute name="label" translatable="yes">Font Presets</attribute>
+     <!-- The apply accelerators are set in control/actions/ActionProperties.h, which registers
+          both the &lt;Ctrl&gt;&lt;Shift&gt;digit and the shifted-symbol spelling. -->
+     <section>
+      <item>
+       <attribute name="label" translatable="yes">Font Preset _1</attribute>
+       <attribute name="action">win.font-preset-1</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">Font Preset _2</attribute>
+       <attribute name="action">win.font-preset-2</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">Font Preset _3</attribute>
+       <attribute name="action">win.font-preset-3</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">Font Preset _4</attribute>
+       <attribute name="action">win.font-preset-4</attribute>
+      </item>
+     </section>
+     <section>
+      <item>
+       <attribute name="label" translatable="yes">Save Current Font as Preset 1</attribute>
+       <attribute name="action">win.save-font-preset-1</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">Save Current Font as Preset 2</attribute>
+       <attribute name="action">win.save-font-preset-2</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">Save Current Font as Preset 3</attribute>
+       <attribute name="action">win.save-font-preset-3</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">Save Current Font as Preset 4</attribute>
+       <attribute name="action">win.save-font-preset-4</attribute>
+      </item>
+     </section>
+    </submenu>
     <item>
      <attribute name="label" translatable="yes">Record / Stop</attribute>
      <attribute name="action">win.audio-record</attribute>

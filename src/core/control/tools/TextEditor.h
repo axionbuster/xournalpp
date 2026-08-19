@@ -97,6 +97,7 @@ public:
 private:
     void toggleOverwrite();
     void toggleBoldFace();
+    void toggleItalic();
     void increaseFontSize();
     void decreaseFontSize();
     void moveCursor(GtkMovementStep step, int count, bool extendSelection);

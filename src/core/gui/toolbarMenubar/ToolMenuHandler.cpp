@@ -456,6 +456,10 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("HAND", Cat::SELECTION, Action::SELECT_TOOL, TOOL_HAND, "hand", _("Hand"));
 
     emplaceItem<FontButton>("SELECT_FONT", *control->getActionDatabase());
+    emplaceCustomItem("FONT_PRESET_1", Cat::TOOLS, Action::FONT_PRESET_1, "font-preset-1", _("Font preset 1"));
+    emplaceCustomItem("FONT_PRESET_2", Cat::TOOLS, Action::FONT_PRESET_2, "font-preset-2", _("Font preset 2"));
+    emplaceCustomItem("FONT_PRESET_3", Cat::TOOLS, Action::FONT_PRESET_3, "font-preset-3", _("Font preset 3"));
+    emplaceCustomItem("FONT_PRESET_4", Cat::TOOLS, Action::FONT_PRESET_4, "font-preset-4", _("Font preset 4"));
     emplaceStockItemTgl("FORMAT_JUSTIFY", Cat::TOOLS, Action::TEXT_JUSTIFY, "format-justify-fill", _("Justify text"));
     emplaceStockItemWithTarget("FORMAT_ALIGN_LEFT", Cat::TOOLS, Action::TEXT_ALIGNMENT, TextAlignment::LEFT,
                                "format-justify-left", _("Align text to the left"));

@@ -6,6 +6,7 @@
 #include <cstdlib>      // for atoi
 #include <cstring>      // for strcmp
 #include <exception>    // for exception
+#include <limits>       // for numeric_limits
 #include <type_traits>  // for add_const<>::type
 #include <utility>      // for pair, move, make_...
 
@@ -20,6 +21,7 @@
 #include "control/settings/SettingsEnums.h"         // for InputDeviceTypeOp...
 #include "gui/toolbarMenubar/model/ColorPalette.h"  // for Palette
 #include "model/FormatDefinitions.h"                // for FormatUnits, XOJ_...
+#include "util/Assert.h"  // for xoj_assert
 #include "util/Color.h"
 #include "util/PathUtil.h"  // for getConfigFile
 #include "util/Util.h"      // for PRECISION_FORMAT_...
@@ -38,6 +40,8 @@ using std::string;
 constexpr auto const* DEFAULT_FONT = "Sans";
 constexpr auto DEFAULT_FONT_SIZE = 12;
 constexpr auto DEFAULT_TOOLBAR = "Portrait";
+/// Font presets are stored as properties named fontPreset1 .. fontPreset<FONT_PRESET_COUNT>
+constexpr auto const* FONT_PRESET_PROPERTY_PREFIX = "fontPreset";
 
 #define SAVE_BOOL_PROP(var) xmlNode = saveProperty((const char*)#var, (var) ? "true" : "false", root)
 #define SAVE_STRING_PROP(var) xmlNode = saveProperty((const char*)#var, (var).empty() ? "" : (var).data(), root)
@@ -87,6 +91,8 @@ void Settings::loadDefault() {
 
     this->font.setName(DEFAULT_FONT);
     this->font.setSize(DEFAULT_FONT_SIZE);
+
+    this->fontPresets.fill(std::nullopt);
 
     this->mainWndWidth = 800;
     this->mainWndHeight = 600;
@@ -461,6 +467,48 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
             }
             xmlFree(size);
         }
+        return;
+    }
+
+    for (size_t i = 0; i < FONT_PRESET_COUNT; i++) {
+        const std::string propName = FONT_PRESET_PROPERTY_PREFIX + std::to_string(i + 1);
+        if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>(propName.c_str())) != 0) {
+            continue;
+        }
+        xmlFree(name);
+
+        FontPreset preset{XojFont{DEFAULT_FONT, DEFAULT_FONT_SIZE}, Colors::black};
+
+        if (xmlChar* font = xmlGetProp(cur, reinterpret_cast<const xmlChar*>("font")); font) {
+            if (const char* fontName = reinterpret_cast<const char*>(font); *fontName != '\0') {
+                preset.font.setName(fontName);
+            }
+            xmlFree(font);
+        }
+        if (xmlChar* size = xmlGetProp(cur, reinterpret_cast<const xmlChar*>("size")); size) {
+            double dSize = DEFAULT_FONT_SIZE;
+            if (sscanf(reinterpret_cast<const char*>(size), "%lf", &dSize) == 1) {
+                preset.font.setSize(dSize);
+            }
+            xmlFree(size);
+        }
+        if (xmlChar* color = xmlGetProp(cur, reinterpret_cast<const xmlChar*>("color")); color) {
+            /*
+             * A preset's color is applied to document content, so a malformed value must not go
+             * through: g_ascii_strtoull() returns 0 on failure, and Color(0) is fully
+             * transparent, which would make the text invisible instead of leaving it black.
+             */
+            const char* const str = reinterpret_cast<const char*>(color);
+            char* end = nullptr;
+            const uint64_t parsed = g_ascii_strtoull(str, &end, 10);
+            if (end != str && *end == '\0' && parsed <= std::numeric_limits<uint32_t>::max()) {
+                preset.color = Color(static_cast<uint32_t>(parsed));
+                preset.color.alpha = 0xffU;  // text is drawn opaque, as ToolHandler does for tools
+            }
+            xmlFree(color);
+        }
+
+        this->fontPresets[i] = preset;
         return;
     }
 
@@ -1479,6 +1527,27 @@ void Settings::save() {
                     this->font.getSize());  // no locale
     xmlSetProp(xmlFont, reinterpret_cast<const xmlChar*>("size"), reinterpret_cast<const xmlChar*>(sSize));
 
+    for (size_t i = 0; i < FONT_PRESET_COUNT; i++) {
+        if (!this->fontPresets[i]) {
+            continue;
+        }
+        const FontPreset& preset = *this->fontPresets[i];
+        const std::string propName = FONT_PRESET_PROPERTY_PREFIX + std::to_string(i + 1);
+
+        xmlNodePtr xmlPreset = xmlNewChild(root, nullptr, reinterpret_cast<const xmlChar*>("property"), nullptr);
+        xmlSetProp(xmlPreset, reinterpret_cast<const xmlChar*>("name"),
+                   reinterpret_cast<const xmlChar*>(propName.c_str()));
+        xmlSetProp(xmlPreset, reinterpret_cast<const xmlChar*>("font"),
+                   reinterpret_cast<const xmlChar*>(preset.font.getName().c_str()));
+
+        g_ascii_formatd(sSize, G_ASCII_DTOSTR_BUF_SIZE, Util::PRECISION_FORMAT_STRING,
+                        preset.font.getSize());  // no locale
+        xmlSetProp(xmlPreset, reinterpret_cast<const xmlChar*>("size"), reinterpret_cast<const xmlChar*>(sSize));
+
+        char sColor[G_ASCII_DTOSTR_BUF_SIZE];
+        g_snprintf(sColor, G_ASCII_DTOSTR_BUF_SIZE, "%u", uint32_t(preset.color));
+        xmlSetProp(xmlPreset, reinterpret_cast<const xmlChar*>("color"), reinterpret_cast<const xmlChar*>(sColor));
+    }
 
     for (std::map<string, SElement>::value_type p: data) {
         saveData(root, p.first, p.second);
@@ -2529,6 +2598,17 @@ auto Settings::getFont() -> XojFont& { return this->font; }
 
 void Settings::setFont(const XojFont& font) {
     this->font = font;
+    save();
+}
+
+auto Settings::getFontPreset(size_t index) const -> const std::optional<FontPreset>& {
+    xoj_assert(index < FONT_PRESET_COUNT);
+    return this->fontPresets[index];
+}
+
+void Settings::setFontPreset(size_t index, const FontPreset& preset) {
+    xoj_assert(index < FONT_PRESET_COUNT);
+    this->fontPresets[index] = preset;
     save();
 }
 

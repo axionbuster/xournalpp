@@ -804,6 +804,64 @@ struct ActionProperties<Action::FONT> {
     }
 };
 
+/**
+ * Font presets. FONT_PRESET_k applies slot k, SAVE_FONT_PRESET_k overwrites it with the current
+ * font and the text tool's color. Both are stateless — the slots live in the Settings.
+ *
+ * The apply accelerators are registered twice on purpose. Depending on the keyboard layout,
+ * Shift+<digit> reaches GTK either as the digit with Shift still unconsumed (matching
+ * "<Ctrl><Shift>1") or as the shifted symbol with Shift consumed (matching "<Ctrl>exclam"), so
+ * both spellings are listed. On a layout where the shifted symbol differs, only the first
+ * spelling applies, which is the intended combination anyway.
+ */
+#ifdef __APPLE__
+#define FONT_PRESET_ACCELS(digit, symbol) \
+    static constexpr const char* accelerators[] = {"<Meta><Shift>" #digit, "<Meta>" #symbol, nullptr}
+#else
+#define FONT_PRESET_ACCELS(digit, symbol) \
+    static constexpr const char* accelerators[] = {"<Ctrl><Shift>" #digit, "<Ctrl>" #symbol, nullptr}
+#endif
+
+template <>
+struct ActionProperties<Action::FONT_PRESET_1> {
+    FONT_PRESET_ACCELS(1, exclam);
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->applyFontPreset(0); }
+};
+template <>
+struct ActionProperties<Action::FONT_PRESET_2> {
+    FONT_PRESET_ACCELS(2, at);
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->applyFontPreset(1); }
+};
+template <>
+struct ActionProperties<Action::FONT_PRESET_3> {
+    FONT_PRESET_ACCELS(3, numbersign);
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->applyFontPreset(2); }
+};
+template <>
+struct ActionProperties<Action::FONT_PRESET_4> {
+    FONT_PRESET_ACCELS(4, dollar);
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->applyFontPreset(3); }
+};
+
+#undef FONT_PRESET_ACCELS
+
+template <>
+struct ActionProperties<Action::SAVE_FONT_PRESET_1> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->saveFontPreset(0); }
+};
+template <>
+struct ActionProperties<Action::SAVE_FONT_PRESET_2> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->saveFontPreset(1); }
+};
+template <>
+struct ActionProperties<Action::SAVE_FONT_PRESET_3> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->saveFontPreset(2); }
+};
+template <>
+struct ActionProperties<Action::SAVE_FONT_PRESET_4> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->saveFontPreset(3); }
+};
+
 template <>
 struct ActionProperties<Action::TEXT_ALIGNMENT> {
     using state_type = TextAlignment::Value;

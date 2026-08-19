@@ -90,6 +90,7 @@
 #include "plugin/PluginController.h"                             // for Plug...
 #include "settings/RecolorParameters.h"                          // for RecolorParameters
 #include "undo/AddUndoAction.h"                                  // for AddU...
+#include "undo/GroupUndoAction.h"                                // for Grou...
 #include "undo/InsertDeletePageUndoAction.h"                     // for Inse...
 #include "undo/InsertUndoAction.h"                               // for Inse...
 #include "undo/MoveSelectionToLayerUndoAction.h"                 // for Move...
@@ -2665,18 +2666,110 @@ void Control::setToolSize(ToolSize size) {
     this->toolHandler->setSize(size);
 }
 
-void Control::fontChanged(const XojFont& font) {
+auto Control::changeFont(const XojFont& font) -> UndoActionPtr {
     settings->setFont(font);
 
+    UndoActionPtr undo;
     if (this->win) {
         if (EditSelection* sel = this->win->getXournal()->getSelection(); sel) {
-            undoRedo->addUndoAction(UndoActionPtr(sel->setFont(font)));
+            undo = sel->setFont(font);
         }
     }
 
     if (TextEditor* editor = getTextEditor(); editor) {
         editor->setFont(font);
     }
+
+    return undo;
+}
+
+void Control::fontChanged(const XojFont& font) { undoRedo->addUndoAction(changeFont(font)); }
+
+void Control::applyFontPreset(size_t index) {
+    const std::optional<FontPreset>& slot = settings->getFontPreset(index);
+    if (!slot) {
+        /*
+         * A slot the user never saved has nothing to apply. Falling back to the current default
+         * font and text color would not be a no-op: it would rewrite the font and the color of a
+         * selected text element or of the text being edited, which are not necessarily the
+         * defaults.
+         */
+        return;
+    }
+    const FontPreset& preset = *slot;
+
+    /*
+     * The same work the font dialog triggers -- the selected text elements, the text being
+     * edited and the default font for the next text element -- but with the resulting undo
+     * actions collected instead of pushed, so that font and color come back in one Ctrl+Z.
+     */
+    UndoActionPtr fontUndo = changeFont(preset.font);
+    // changeFont() bypasses the action, so the font button has to be told separately
+    this->actionDB->setActionState(Action::FONT, preset.font.asString().c_str());
+
+    UndoActionPtr colorUndo = applyTextColor(preset.color);
+
+    if (fontUndo && colorUndo) {
+        auto group = std::make_unique<GroupUndoAction>();
+        group->addAction(std::move(fontUndo));
+        group->addAction(std::move(colorUndo));
+        undoRedo->addUndoAction(std::move(group));
+    } else {
+        // At most one of them is non-null here; addUndoAction ignores a null action
+        undoRedo->addUndoAction(std::move(fontUndo));
+        undoRedo->addUndoAction(std::move(colorUndo));
+    }
+}
+
+void Control::saveFontPreset(size_t index) {
+    XojFont font = settings->getFont();
+    Color color = toolHandler->getTool(TOOL_TEXT).getColor();
+
+    if (TextEditor* editor = getTextEditor(); editor) {
+        /*
+         * While a text element is being edited, the font button and the canvas show that
+         * element's font and color, not the settings' defaults: entering an existing element
+         * adopts its font, and Ctrl+B / Ctrl+I / Ctrl+plus change it in place without touching
+         * the settings. Capture what the user actually sees.
+         */
+        const Text* text = editor->getTextElement();
+        font = text->getFont();
+        color = text->getColor();
+        color.alpha = 0xffU;  // text is drawn opaque; the stored alpha is not meaningful
+    }
+
+    settings->setFontPreset(index, FontPreset{font, color});
+}
+
+auto Control::applyTextColor(Color color) -> UndoActionPtr {
+    /*
+     * Only the text tool is recolored. Applying a font preset while the pen happens to be the
+     * held tool must leave the pen alone, so this deliberately does not go through
+     * ToolHandler::setColor (which targets whichever tool is active).
+     */
+    toolHandler->getTool(TOOL_TEXT).setColor(color);
+    if (toolHandler->getToolType() == TOOL_TEXT) {
+        /*
+         * The color buttons and the cursor show the active tool's color, but while a text
+         * element is being edited they were set to that element's color instead. So refresh
+         * them even when the tool's own color did not change, or they keep showing the color
+         * of the element as it was before.
+         */
+        toolColorChanged();
+    }
+
+    UndoActionPtr undo;
+    if (this->win) {
+        if (EditSelection* sel = this->win->getXournal()->getSelection(); sel) {
+            undo = sel->setTextColor(color);
+        }
+    }
+
+    if (TextEditor* editor = getTextEditor(); editor) {
+        editor->setColor(color);
+    }
+
+    return undo;
 }
 
 /**

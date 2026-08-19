@@ -285,6 +285,35 @@ auto EditSelectionContents::setColor(Color color) -> UndoActionPtr {
 }
 
 /**
+ * Sets the color of all containing text elements, return an undo action
+ * (or nullptr if there are no Text elements)
+ */
+auto EditSelectionContents::setTextColor(Color color) -> UndoActionPtr {
+    auto undo = std::make_unique<ColorUndoAction>(this->sourcePage, this->sourceLayer);
+
+    bool found = false;
+
+    for (Element* e: this->selected) {
+        if (e->getType() == ELEMENT_TEXT) {
+            auto lastColor = e->getColor();
+            e->setColor(color);
+            undo->addStroke(e, lastColor, e->getColor());
+
+            found = true;
+        }
+    }
+
+    if (found) {
+        this->deleteViewBuffer();
+        this->sourceView->getXournal()->repaintSelection();
+
+        return undo;
+    }
+
+    return nullptr;
+}
+
+/**
  * Fills the undo item if the selection is deleted
  * the selection is cleared after
  */

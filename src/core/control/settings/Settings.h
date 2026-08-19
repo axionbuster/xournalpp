@@ -46,6 +46,16 @@ constexpr auto DEFAULT_GRID_SIZE = 14.17;
 /// Overshoot of the ray/infinite line drawing types, in page units (30/72 inch, about 10.6 mm)
 constexpr auto DEFAULT_EXTENDED_LINE_OVERSHOOT = 30.0;
 constexpr unsigned int MAX_SPACES_FOR_TAB = 8U;
+/// Number of font preset slots (see Settings::getFontPreset)
+constexpr size_t FONT_PRESET_COUNT = 4;
+
+/**
+ * One font preset slot: the font and the text color that applying the preset installs.
+ */
+struct FontPreset {
+    XojFont font;
+    Color color;
+};
 
 class ButtonConfig;
 class InputDevice;
@@ -161,6 +171,14 @@ public:
      */
     XojFont& getFont();
     void setFont(const XojFont& font);
+
+    /**
+     * Font presets. `index` is 0-based and must be smaller than FONT_PRESET_COUNT.
+     * An empty slot means "never saved"; the caller then falls back to the current
+     * font and the text tool's color.
+     */
+    const std::optional<FontPreset>& getFontPreset(size_t index) const;
+    void setFontPreset(size_t index, const FontPreset& preset);
 
     /**
      * The selected Toolbar
@@ -982,6 +1000,12 @@ private:
      * The last used font
      */
     XojFont font;
+
+    /**
+     * The font presets, stored as `fontPreset1` .. `fontPreset4` properties.
+     * An unset slot has never been saved by the user.
+     */
+    std::array<std::optional<FontPreset>, FONT_PRESET_COUNT> fontPresets;
 
     /**
      * Base speed (as a percentage of visible canvas) of edge pan per

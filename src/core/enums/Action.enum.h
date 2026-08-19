@@ -145,6 +145,20 @@ enum class Action : size_t {
     TEXT_ALIGNMENT,
     TEXT_JUSTIFY,
 
+    /**
+     * Font presets: four slots, each holding a font description and a text color.
+     * FONT_PRESET_k applies slot k, SAVE_FONT_PRESET_k overwrites slot k with the
+     * current font and the text tool's current color.
+     */
+    FONT_PRESET_1,
+    FONT_PRESET_2,
+    FONT_PRESET_3,
+    FONT_PRESET_4,
+    SAVE_FONT_PRESET_1,
+    SAVE_FONT_PRESET_2,
+    SAVE_FONT_PRESET_3,
+    SAVE_FONT_PRESET_4,
+
     // Plugin Menu
     PLUGIN_MANAGER,
 

@@ -345,6 +345,15 @@ void TextEditor::setJustify(bool justify) {
 }
 
 void TextEditor::afterFontChange() {
+    /*
+     * Ctrl+B, Ctrl+I and Ctrl+plus change the element's own font without going through the font
+     * action, so the font button would otherwise keep showing the font as it was when the
+     * edition started -- and the font dialog, as well as "save current font as preset", would
+     * start from that stale font.
+     */
+    this->control->getActionDatabase()->setActionState(Action::FONT,
+                                                       this->textElement->getFont().asString().c_str());
+
     this->textElement->updatePangoFont(this->layout.get());
     this->computeVirtualCursorPosition();
     this->repaintEditor();
@@ -511,6 +520,29 @@ void TextEditor::toggleBoldFace() {
     }
 
     font.setName(fontName);
+    afterFontChange();
+}
+
+/**
+ * Toggle the italic style of the whole element. The element carries a single Pango font
+ * description, so the toggle goes through Pango rather than through the family name: appending
+ * or stripping " Italic" would break on families whose name legitimately contains the word, and
+ * on the oblique-instead-of-italic families Pango resolves for us.
+ */
+void TextEditor::toggleItalic() {
+    XojFont& font = textElement->getFont();
+
+    PangoFontDescription* desc = pango_font_description_from_string(font.getName().c_str());
+    const bool isItalic = pango_font_description_get_style(desc) != PANGO_STYLE_NORMAL;
+    pango_font_description_set_style(desc, isItalic ? PANGO_STYLE_NORMAL : PANGO_STYLE_ITALIC);
+    // The size lives in XojFont, not in the description; keep it out of the round-trip
+    pango_font_description_unset_fields(desc, PANGO_FONT_MASK_SIZE);
+
+    char* name = pango_font_description_to_string(desc);
+    font.setName(name);
+    g_free(name);
+    pango_font_description_free(desc);
+
     afterFontChange();
 }
 
