@@ -167,6 +167,31 @@ option(ENABLE_AUDIO "Compile with Audio recording/playing support" ON)
 if (ENABLE_AUDIO)
     message(STATUS "Enable Audio support")
     pkg_check_modules(ExternalAudioModules REQUIRED IMPORTED_TARGET "portaudiocpp >= 12;sndfile >= 1.0.25")
+    if (APPLE)
+        # portaudio's .pc hands us five "-framework X" two-token pairs. CMake
+        # de-duplicates INTERFACE_LINK_OPTIONS, so the repeated "-framework"
+        # tokens collapse and the link line ends up with bare framework names
+        # ("no such file or directory: 'AudioUnit'"). Fold each pair into the
+        # single-token "-Wl,-framework,X" form, which survives de-duplication
+        # (gtk's .pc already uses that form for Cocoa).
+        get_target_property(_audio_link_opts PkgConfig::ExternalAudioModules INTERFACE_LINK_OPTIONS)
+        if (_audio_link_opts)
+            set(_folded_opts "")
+            set(_pending_framework FALSE)
+            foreach (_opt IN LISTS _audio_link_opts)
+                if (_pending_framework)
+                    list(APPEND _folded_opts "-Wl,-framework,${_opt}")
+                    set(_pending_framework FALSE)
+                elseif (_opt STREQUAL "-framework")
+                    set(_pending_framework TRUE)
+                else ()
+                    list(APPEND _folded_opts "${_opt}")
+                endif ()
+            endforeach ()
+            set_target_properties(PkgConfig::ExternalAudioModules PROPERTIES
+                                  INTERFACE_LINK_OPTIONS "${_folded_opts}")
+        endif ()
+    endif ()
 else ()
     message(STATUS "Disable Audio support")
 endif ()
