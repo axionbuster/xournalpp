@@ -33,6 +33,7 @@
 #include "control/tools/EditSelection.h"            // for EditSelection
 #include "control/tools/EllipseHandler.h"           // for EllipseHandler
 #include "control/tools/EraseHandler.h"             // for EraseHandler
+#include "control/tools/ExtendedLineHandler.h"      // for ExtendedLineHandler
 #include "control/tools/ImageHandler.h"             // for ImageHandler
 #include "control/tools/ImageSizeSelection.h"       // for ImageSizeSelection
 #include "control/tools/InputHandler.h"             // for InputHandler
@@ -285,6 +286,12 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
                 break;
             case DRAWING_TYPE_DOUBLE_ARROW:
                 this->inputHandler = std::make_unique<ArrowHandler>(control, getPage(), true);
+                break;
+            case DRAWING_TYPE_RAY:
+                this->inputHandler = std::make_unique<ExtendedLineHandler>(control, getPage(), false);
+                break;
+            case DRAWING_TYPE_INFINITE_LINE:
+                this->inputHandler = std::make_unique<ExtendedLineHandler>(control, getPage(), true);
                 break;
             case DRAWING_TYPE_COORDINATE_SYSTEM:
                 this->inputHandler = std::make_unique<CoordinateSystemHandler>(control, getPage());

@@ -431,6 +431,9 @@ void ToolMenuHandler::initToolItems() {
                          _("Draw Double Arrow"));
     emplaceCustomItemTgl("DRAW_COORDINATE_SYSTEM", Cat::TOOLS, Action::TOOL_DRAW_COORDINATE_SYSTEM,
                          "draw-coordinate-system", _("Draw Coordinate System"));
+    emplaceCustomItemTgl("DRAW_RAY", Cat::TOOLS, Action::TOOL_DRAW_RAY, "draw-ray", _("Draw Ray"));
+    emplaceCustomItemTgl("DRAW_INFINITE_LINE", Cat::TOOLS, Action::TOOL_DRAW_INFINITE_LINE, "draw-infinite-line",
+                         _("Draw Infinite Line"));
     emplaceCustomItemTgl("RULER", Cat::TOOLS, Action::TOOL_DRAW_LINE, "draw-line", _("Draw Line"));
     emplaceCustomItemTgl("DRAW_SPLINE", Cat::TOOLS, Action::TOOL_DRAW_SPLINE, "draw-spline", _("Draw Spline"));
 

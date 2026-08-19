@@ -49,6 +49,8 @@ public:
         ELLIPSE,
         ARROW,
         DOUBLE_ARROW,
+        RAY,
+        INFINITE_LINE,
         LINE,
         COORDINATE_SYSTEM,
         SPLINE,

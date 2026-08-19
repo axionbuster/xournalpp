@@ -36,6 +36,9 @@ static auto makeEntries(IconNameHelper& icons, const ActionDatabase& db)
     entries[Type::ARROW] = Entry(_("Draw Arrow"), icons.iconName("draw-arrow"), db, Action::TOOL_DRAW_ARROW);
     entries[Type::DOUBLE_ARROW] =
             Entry(_("Draw Double Arrow"), icons.iconName("draw-double-arrow"), db, Action::TOOL_DRAW_DOUBLE_ARROW);
+    entries[Type::RAY] = Entry(_("Draw Ray"), icons.iconName("draw-ray"), db, Action::TOOL_DRAW_RAY);
+    entries[Type::INFINITE_LINE] =
+            Entry(_("Draw Infinite Line"), icons.iconName("draw-infinite-line"), db, Action::TOOL_DRAW_INFINITE_LINE);
     entries[Type::LINE] = Entry(_("Draw Line"), icons.iconName("draw-line"), db, Action::TOOL_DRAW_LINE);
     entries[Type::COORDINATE_SYSTEM] = Entry(_("Draw coordinate system"), icons.iconName("draw-coordinate-system"), db,
                                              Action::TOOL_DRAW_COORDINATE_SYSTEM);
@@ -134,6 +137,10 @@ auto DrawingTypeComboToolButton::createItem(bool horizontal) -> xoj::util::Widge
                      xoj::util::wrap_for_g_callback_v<Data::setProminentIconCallback<Type::ARROW>>, data.get());
     g_signal_connect((*entries)[Type::DOUBLE_ARROW].gAction.get(), "notify::state",
                      xoj::util::wrap_for_g_callback_v<Data::setProminentIconCallback<Type::DOUBLE_ARROW>>, data.get());
+    g_signal_connect((*entries)[Type::RAY].gAction.get(), "notify::state",
+                     xoj::util::wrap_for_g_callback_v<Data::setProminentIconCallback<Type::RAY>>, data.get());
+    g_signal_connect((*entries)[Type::INFINITE_LINE].gAction.get(), "notify::state",
+                     xoj::util::wrap_for_g_callback_v<Data::setProminentIconCallback<Type::INFINITE_LINE>>, data.get());
     g_signal_connect((*entries)[Type::LINE].gAction.get(), "notify::state",
                      xoj::util::wrap_for_g_callback_v<Data::setProminentIconCallback<Type::LINE>>, data.get());
     g_signal_connect((*entries)[Type::COORDINATE_SYSTEM].gAction.get(), "notify::state",
@@ -154,6 +161,8 @@ auto DrawingTypeComboToolButton::createItem(bool horizontal) -> xoj::util::Widge
                 g_signal_handlers_disconnect_by_data((*data->entries)[Type::ELLIPSE].gAction.get(), d);
                 g_signal_handlers_disconnect_by_data((*data->entries)[Type::ARROW].gAction.get(), d);
                 g_signal_handlers_disconnect_by_data((*data->entries)[Type::DOUBLE_ARROW].gAction.get(), d);
+                g_signal_handlers_disconnect_by_data((*data->entries)[Type::RAY].gAction.get(), d);
+                g_signal_handlers_disconnect_by_data((*data->entries)[Type::INFINITE_LINE].gAction.get(), d);
                 g_signal_handlers_disconnect_by_data((*data->entries)[Type::LINE].gAction.get(), d);
                 g_signal_handlers_disconnect_by_data((*data->entries)[Type::COORDINATE_SYSTEM].gAction.get(), d);
                 g_signal_handlers_disconnect_by_data((*data->entries)[Type::SPLINE].gAction.get(), d);

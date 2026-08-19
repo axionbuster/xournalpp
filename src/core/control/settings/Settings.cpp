@@ -152,6 +152,8 @@ void Settings::loadDefault() {
 
     this->strokeRecognizerMinSize = 40;
 
+    this->extendedLineOvershoot = DEFAULT_EXTENDED_LINE_OVERSHOOT;
+
     this->touchDrawing = false;
     this->gtkTouchInertialScrolling = true;
 
@@ -695,6 +697,10 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->snapGridTolerance = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("strokeRecognizerMinSize")) == 0) {
         this->strokeRecognizerMinSize = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("extendedLineOvershoot")) == 0) {
+        // A negative overshoot would flip the arrow heads onto the wrong side of the anchor points
+        this->extendedLineOvershoot =
+                std::max(0.0, tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr));
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("touchDrawing")) == 0) {
         this->touchDrawing = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("gtkTouchInertialScrolling")) == 0) {
@@ -1303,6 +1309,8 @@ void Settings::save() {
 
     SAVE_DOUBLE_PROP(strokeRecognizerMinSize);
 
+    SAVE_DOUBLE_PROP(extendedLineOvershoot);
+
     SAVE_BOOL_PROP(touchDrawing);
     SAVE_BOOL_PROP(gtkTouchInertialScrolling);
     SAVE_BOOL_PROP(pressureGuessing);
@@ -1868,6 +1876,16 @@ void Settings::setStrokeRecognizerMinSize(double value) {
     }
 
     this->strokeRecognizerMinSize = value;
+    save();
+};
+
+auto Settings::getExtendedLineOvershoot() const -> double { return this->extendedLineOvershoot; };
+void Settings::setExtendedLineOvershoot(double value) {
+    if (this->extendedLineOvershoot == value) {
+        return;
+    }
+
+    this->extendedLineOvershoot = value;
     save();
 };
 

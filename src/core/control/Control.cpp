@@ -1240,6 +1240,8 @@ void Control::toolChanged() {
     this->actionDB->enableAction(Action::TOOL_DRAW_ELLIPSE, toolHandler->hasCapability(TOOL_CAP_ELLIPSE));
     this->actionDB->enableAction(Action::TOOL_DRAW_ARROW, toolHandler->hasCapability(TOOL_CAP_ARROW));
     this->actionDB->enableAction(Action::TOOL_DRAW_DOUBLE_ARROW, toolHandler->hasCapability(TOOL_CAP_DOUBLE_ARROW));
+    this->actionDB->enableAction(Action::TOOL_DRAW_RAY, toolHandler->hasCapability(TOOL_CAP_RAY));
+    this->actionDB->enableAction(Action::TOOL_DRAW_INFINITE_LINE, toolHandler->hasCapability(TOOL_CAP_INFINITE_LINE));
     this->actionDB->enableAction(Action::TOOL_DRAW_COORDINATE_SYSTEM, toolHandler->hasCapability(TOOL_CAP_ARROW));
     this->actionDB->enableAction(Action::TOOL_DRAW_SPLINE, toolHandler->hasCapability(TOOL_CAP_SPLINE));
     this->actionDB->enableAction(Action::TOOL_DRAW_SHAPE_RECOGNIZER, toolHandler->hasCapability(TOOL_CAP_RECOGNIZER));
@@ -1250,6 +1252,8 @@ void Control::toolChanged() {
     this->actionDB->setActionState(Action::TOOL_DRAW_ELLIPSE, dt == DRAWING_TYPE_ELLIPSE);
     this->actionDB->setActionState(Action::TOOL_DRAW_ARROW, dt == DRAWING_TYPE_ARROW);
     this->actionDB->setActionState(Action::TOOL_DRAW_DOUBLE_ARROW, dt == DRAWING_TYPE_DOUBLE_ARROW);
+    this->actionDB->setActionState(Action::TOOL_DRAW_RAY, dt == DRAWING_TYPE_RAY);
+    this->actionDB->setActionState(Action::TOOL_DRAW_INFINITE_LINE, dt == DRAWING_TYPE_INFINITE_LINE);
     this->actionDB->setActionState(Action::TOOL_DRAW_COORDINATE_SYSTEM, dt == DRAWING_TYPE_COORDINATE_SYSTEM);
     this->actionDB->setActionState(Action::TOOL_DRAW_SPLINE, dt == DRAWING_TYPE_SPLINE);
     this->actionDB->setActionState(Action::TOOL_DRAW_SHAPE_RECOGNIZER, dt == DRAWING_TYPE_SHAPE_RECOGNIZER);

@@ -622,6 +622,16 @@
       <attribute name="action">win.tool-draw-spline</attribute>
       <attribute name="accel">&lt;Ctrl&gt;8</attribute>
      </item>
+     <item>
+      <attribute name="label" translatable="yes">Draw Ray</attribute>
+      <attribute name="action">win.tool-draw-ray</attribute>
+      <attribute name="accel">&lt;Ctrl&gt;9</attribute>
+     </item>
+     <item>
+      <attribute name="label" translatable="yes">Draw Infinite Line</attribute>
+      <attribute name="action">win.tool-draw-infinite-line</attribute>
+      <attribute name="accel">&lt;Ctrl&gt;0</attribute>
+     </item>
     </submenu>
    </section>
    <section>

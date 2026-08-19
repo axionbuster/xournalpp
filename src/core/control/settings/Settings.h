@@ -43,6 +43,8 @@
 struct Palette;
 
 constexpr auto DEFAULT_GRID_SIZE = 14.17;
+/// Overshoot of the ray/infinite line drawing types, in page units (30/72 inch, about 10.6 mm)
+constexpr auto DEFAULT_EXTENDED_LINE_OVERSHOOT = 30.0;
 constexpr unsigned int MAX_SPACES_FOR_TAB = 8U;
 
 class ButtonConfig;
@@ -356,6 +358,9 @@ public:
 
     double getStrokeRecognizerMinSize() const;
     void setStrokeRecognizerMinSize(double value);
+
+    double getExtendedLineOvershoot() const;
+    void setExtendedLineOvershoot(double value);
 
     StylusCursorType getStylusCursorType() const;
     void setStylusCursorType(StylusCursorType stylusCursorType);
@@ -1271,6 +1276,13 @@ private:
      * Minimum size of stroke to detect shape
      */
     double strokeRecognizerMinSize{};
+
+    /**
+     * How far (in page units) the ray and infinite line drawing types overshoot the dragged
+     * endpoints before their arrow head. There is no preferences dialog entry for this: edit
+     * the extendedLineOvershoot property in settings.xml to change it.
+     */
+    double extendedLineOvershoot{};
 
     /// Touchscreens act like multi-touch-aware pens.
     bool touchDrawing{};

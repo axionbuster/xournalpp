@@ -615,6 +615,8 @@ struct ActionPropDrawingTypes {
         actionDB->setActionState(Action::TOOL_DRAW_COORDINATE_SYSTEM, false);
         actionDB->setActionState(Action::TOOL_DRAW_LINE, false);
         actionDB->setActionState(Action::TOOL_DRAW_SPLINE, false);
+        actionDB->setActionState(Action::TOOL_DRAW_RAY, false);
+        actionDB->setActionState(Action::TOOL_DRAW_INFINITE_LINE, false);
 
         g_simple_action_set_state(ga, p);
         bool enabled = g_variant_get_boolean(p);
@@ -639,6 +641,10 @@ template <>
 struct ActionProperties<Action::TOOL_DRAW_LINE>: ActionPropDrawingTypes<DRAWING_TYPE_LINE> {};
 template <>
 struct ActionProperties<Action::TOOL_DRAW_SPLINE>: ActionPropDrawingTypes<DRAWING_TYPE_SPLINE> {};
+template <>
+struct ActionProperties<Action::TOOL_DRAW_RAY>: ActionPropDrawingTypes<DRAWING_TYPE_RAY> {};
+template <>
+struct ActionProperties<Action::TOOL_DRAW_INFINITE_LINE>: ActionPropDrawingTypes<DRAWING_TYPE_INFINITE_LINE> {};
 
 template <>
 struct ActionProperties<Action::SETSQUARE> {

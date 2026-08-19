@@ -52,11 +52,19 @@ enum DrawingType {
     DRAWING_TYPE_DOUBLE_ARROW,
     DRAWING_TYPE_COORDINATE_SYSTEM,
     DRAWING_TYPE_SHAPE_RECOGNIZER,
-    DRAWING_TYPE_SPLINE
+    DRAWING_TYPE_SPLINE,
+
+    /**
+     * Straight lines overshooting the dragged endpoints and ending in an arrow head.
+     * Ray overshoots the second endpoint only, infinite line overshoots both.
+     * New entries must be appended, so that already persisted indices stay valid.
+     */
+    DRAWING_TYPE_RAY,
+    DRAWING_TYPE_INFINITE_LINE
 };
-static constexpr std::array<std::string_view, 10> drawingTypeNames{
-        "dontChange",           "default",          "line",  "rectangle", "ellipse", "arrow", "doubleArrow",
-        "drawCoordinateSystem", "strokeRecognizer", "spline"};
+static constexpr std::array<std::string_view, 12> drawingTypeNames{
+        "dontChange", "default",          "line",   "rectangle",    "ellipse", "arrow",
+        "doubleArrow", "drawCoordinateSystem", "strokeRecognizer", "spline", "ray", "infiniteLine"};
 
 static constexpr std::string_view drawingTypeToString(DrawingType type) {
     return drawingTypeNames.at(static_cast<size_t>(type));
@@ -94,6 +102,8 @@ enum ToolType {
     TOOL_LASER_POINTER_HIGHLIGHTER = 24,
     TOOL_LINK = 25,
     TOOL_LATEX = 26,
+    TOOL_DRAW_RAY = 27,
+    TOOL_DRAW_INFINITE_LINE = 28,
 
     TOOL_END_ENTRY
 };
@@ -123,7 +133,9 @@ static constexpr std::array<std::string_view, TOOL_END_ENTRY> toolNames{"none",
                                                                         "laserPointerPen",
                                                                         "laserPointerHighlighter",
                                                                         "link",
-                                                                        "latex"};
+                                                                        "latex",
+                                                                        "drawRay",
+                                                                        "drawInfiniteLine"};
 
 auto isSelectToolType(ToolType type) -> bool;
 auto isSelectToolTypeSingleLayer(ToolType type) -> bool;
@@ -178,7 +190,9 @@ enum ToolCapabilities : unsigned int {
     TOOL_CAP_SPLINE = 1 << 10,
     TOOL_CAP_LINE_STYLE = 1 << 11,
     TOOL_CAP_ALIGN = 1 << 12,
-    TOOL_CAP_JUSTIFY = 1 << 13
+    TOOL_CAP_JUSTIFY = 1 << 13,
+    TOOL_CAP_RAY = 1 << 14,
+    TOOL_CAP_INFINITE_LINE = 1 << 15
 };
 
 enum StrokeType {
