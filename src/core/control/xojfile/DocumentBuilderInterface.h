@@ -18,6 +18,7 @@
 #include <string_view>
 #include <vector>
 
+#include "model/TextStyleRuns.h"  // for TextStyleRuns
 #include "util/Color.h"
 
 #include "filesystem.h"
@@ -61,6 +62,13 @@ public:
     virtual void finalizeStroke() = 0;
     virtual void addText(std::string font, double size, double x, double y, Color color, std::optional<double> wrap,
                          std::optional<TextAlignment> align, bool justify, fs::path filename, size_t timestamp) = 0;
+    /**
+     * Attach inline style runs to the text currently being built.
+     *
+     * Fork-only; called between addText() and finalizeText(), and only for the texts that carry
+     * the fork's "runs" attribute.
+     */
+    virtual void setTextStyleRuns(TextStyleRuns runs) = 0;
     virtual void setTextContents(std::string contents) = 0;
     virtual void finalizeText() = 0;
     virtual void addImage(double left, double top, double right, double bottom) = 0;

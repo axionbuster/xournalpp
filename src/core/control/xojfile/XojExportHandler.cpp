@@ -15,6 +15,7 @@
 
 class AudioElement;
 class Stroke;
+class Text;
 class XmlAudioNode;
 class XmlPointNode;
 
@@ -28,6 +29,10 @@ XojExportHandler::~XojExportHandler() = default;
 void XojExportHandler::visitStrokeExtended(XmlPointNode* stroke, const Stroke* s) {
     // Fill is not exported in .xoj
     // Line style is also not supported
+}
+
+void XojExportHandler::visitTextExtended(XmlTextNode* text, const Text* t) {
+    // Inline style runs are a fork-only construct; a .xoj file gets the plain text
 }
 
 void XojExportHandler::writeHeader(const Document* doc) {

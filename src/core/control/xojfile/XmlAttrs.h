@@ -73,6 +73,27 @@ constexpr auto Y_COORD_STR = u8"y";  // also in link
 constexpr auto ALIGN_STR = u8"align";  // also in link
 constexpr auto JUSTIFY_STR = u8"justify";
 
+/*
+ * Fork-only text attribute, written only for text carrying inline styling:
+ *
+ *     runs="0-5:i;7-12:bc#ff0000ff"
+ *
+ * Each item is a half-open byte range into the element's text followed by the style that range
+ * is drawn with: `b` bold and `B` not bold, `i` italic and `I` not italic, `c#RRGGBBAA` a color
+ * replacing the element's own. A flag left out leaves the element's own font in charge, which is
+ * why the negative forms exist at all: an element whose font is already "Arial Bold" needs a way
+ * to say that a range of it is not. The items are ordered and never overlap, and a range styled
+ * exactly like its element is left out. The full grammar lives on xoj::text::serializeStyleRuns()
+ * in model/TextStyleRuns.h; an attribute that does not follow it is reported and the text loads
+ * unstyled.
+ *
+ * Stock Xournal++ looks text attributes up by name (XmlParserHelper::AttributeMap) and never
+ * enumerates the ones it does not know, so it silently ignores this one and renders the text
+ * with the element's single font and color. A document containing it is nonetheless tagged with
+ * the fork's file format version — see SaveHandler::hasForkFormatExtensions().
+ */
+constexpr auto RUNS_STR = u8"runs";
+
 // image
 constexpr auto LEFT_POS_STR = u8"left";      // also in teximage
 constexpr auto TOP_POS_STR = u8"top";        // also in teximage

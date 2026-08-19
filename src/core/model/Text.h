@@ -23,6 +23,7 @@
 #include "AudioElement.h"  // for AudioElement
 #include "Font.h"          // for XojFont
 #include "TextAlignment.h"
+#include "TextStyleRuns.h"  // for TextStyleRuns
 
 class Element;
 class ObjectInputStream;
@@ -49,8 +50,19 @@ public:
     void setInEditing(bool inEditing);
     bool isInEditing() const;
 
+    /**
+     * @brief The stretches of the text that are styled differently from the element, if any
+     *
+     * An empty list — the only thing a stock Xournal++ document ever produces — means the whole
+     * text is drawn with the element's own font and color.
+     */
+    const TextStyleRuns& getStyleRuns() const;
+    void setStyleRuns(TextStyleRuns runs);
+
     xoj::util::GObjectSPtr<PangoLayout> createPangoLayout() const;
     void updatePangoFont(PangoLayout* layout) const;
+    /// Apply the style runs to a layout holding this element's text
+    void updatePangoAttributes(PangoLayout* layout) const;
 
     void scale(double x0, double y0, double fx, double fy, double rotation, bool restoreLineWidth) override;
     void rotate(double x0, double y0, double th) override;
@@ -96,6 +108,8 @@ private:
     XojFont font;
 
     std::string text;
+
+    TextStyleRuns styleRuns;  ///< Empty unless the text carries inline styling
 
     double wrapWidth = NO_WRAP;  ///< NO_WRAP for no wrap
     TextAlignment align = TextAlignment::LEFT;

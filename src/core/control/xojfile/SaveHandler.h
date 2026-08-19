@@ -30,7 +30,9 @@ class Document;
 class Layer;
 class OutputStream;
 class Stroke;
+class Text;
 class XmlAudioNode;
+class XmlTextNode;
 
 class SaveHandler {
 public:
@@ -61,8 +63,8 @@ public:
      * The fork's extensions are extra attributes on existing elements, which stock Xournal++
      * ignores; a document carrying them is nonetheless tagged with the fork's file format
      * version so that a stock build warns before opening it. Today that means: does any stroke
-     * carry line shape metadata. This is the single choke point for the decision — a later
-     * fork-only construct ORs its own test in here.
+     * carry line shape metadata, or any text carry inline style runs. This is the single choke
+     * point for the decision — a later fork-only construct ORs its own test in here.
      */
     static bool hasForkFormatExtensions(const Document* doc);
 
@@ -80,6 +82,11 @@ protected:
      * Export the fill attributes
      */
     virtual void visitStrokeExtended(XmlPointNode* stroke, const Stroke* s);
+
+    /**
+     * Export the inline style runs, which only this fork's format has
+     */
+    virtual void visitTextExtended(XmlTextNode* text, const Text* t);
 
     virtual void writeHeader(const Document* doc);
     virtual void writeSolidBackground(XmlNode* background, ConstPageRef p);

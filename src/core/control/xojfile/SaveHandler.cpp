@@ -34,6 +34,7 @@
 #include "model/StrokeStyle.h"                 // for StrokeStyle
 #include "model/TexImage.h"                    // for TexImage
 #include "model/Text.h"                        // for Text
+#include "model/TextStyleRuns.h"               // for serializeStyleRuns
 #include "model/XojPage.h"                     // for XojPage
 #include "pdf/base/XojPdfDocument.h"           // for XojPdfDocument
 #include "util/OutputStream.h"                 // for GzOutputStream, Output...
@@ -93,6 +94,9 @@ auto SaveHandler::hasForkFormatExtensions(const Document* doc) -> bool {
         for (const Layer* l: p->getLayersView()) {
             for (const auto& e: l->getElementsView()) {
                 if (e->getType() == ELEMENT_STROKE && dynamic_cast<const Stroke*>(e)->getLineShape()) {
+                    return true;
+                }
+                if (e->getType() == ELEMENT_TEXT && !dynamic_cast<const Text*>(e)->getStyleRuns().empty()) {
                     return true;
                 }
             }
@@ -197,6 +201,13 @@ void SaveHandler::visitStrokeExtended(XmlPointNode* stroke, const Stroke* s) {
     }
 }
 
+void SaveHandler::visitTextExtended(XmlTextNode* text, const Text* t) {
+    if (const auto& runs = t->getStyleRuns(); !runs.empty()) {
+        // Fork-only attribute; see the comment on RUNS_STR in XmlAttrs.h
+        text->setAttrib(xoj::xml_attrs::RUNS_STR, xoj::text::serializeStyleRuns(runs).c_str());
+    }
+}
+
 void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
     auto* layer = new XmlNode(TAG_NAMES[TagType::LAYER]);
     page->addChild(layer);
@@ -236,6 +247,8 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
             if (t->getJustify()) {
                 text->setAttrib(xoj::xml_attrs::JUSTIFY_STR, xoj::xml_values::TRUE_STR);
             }
+
+            visitTextExtended(text, t);
 
             writeTimestamp(text, t);
         } else if (e->getType() == ELEMENT_IMAGE) {

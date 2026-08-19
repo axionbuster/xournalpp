@@ -12,7 +12,9 @@
 #include "model/Link.h"
 #include "model/Point.h"
 #include "model/Stroke.h"
+#include "model/Text.h"
 #include "model/TextAlignment.h"
+#include "model/TextStyleRuns.h"
 #include "util/StringUtils.h"
 #include "util/serializing/BinObjectEncoding.h"
 #include "util/serializing/HexObjectEncoding.h"
@@ -88,6 +90,15 @@ std::string serializeUInt(uint32_t x) {
 std::string serializeStroke(Stroke& stroke) {
     ObjectOutputStream outStream(new BinObjectEncoding);
     stroke.serialize(outStream);
+    auto outStr = outStream.stealData();
+    auto resStr = std::string{outStr->str, outStr->len};
+    g_string_free(outStr, true);
+    return resStr;
+}
+
+std::string serializeText(Text& text) {
+    ObjectOutputStream outStream(new BinObjectEncoding);
+    text.serialize(outStream);
     auto outStr = outStream.stealData();
     auto resStr = std::string{outStr->str, outStr->len};
     g_string_free(outStr, true);
@@ -495,6 +506,82 @@ TEST(UtilObjectIOStream, testAtEndOfObject) {
     istream.readObject("Empty");
     EXPECT_TRUE(istream.atEndOfObject());
     EXPECT_NO_THROW(istream.endObject());
+}
+
+TEST(UtilObjectIOStream, testReadTextStyleRuns) {
+    // The style runs must survive the binary round trip, or the clipboard and undo would lose
+    // the inline styling of a text element.
+    TextStyleRun italic;
+    italic.start = 2;
+    italic.end = 5;
+    italic.italic = true;
+
+    TextStyleRun boldRed;
+    boldRed.start = 7;
+    boldRed.end = 11;
+    boldRed.bold = true;
+    boldRed.color = Colors::red;
+
+    // A run that takes bold and italic away from the element's own font, which is a different
+    // thing to encode than "no opinion" and must not come back as one
+    TextStyleRun forcedOff;
+    forcedOff.start = 13;
+    forcedOff.end = 15;
+    forcedOff.bold = false;
+    forcedOff.italic = false;
+
+    std::vector<Text> texts(4);
+    // texts[0]: unstyled, to check the "absent" encoding next to the styled ones
+    for (auto&& text: texts) {
+        text.setText("Multiline\ntext 测试");
+    }
+    texts[1].setStyleRuns({italic});
+    texts[2].setStyleRuns({italic, boldRed});
+    texts[3].setStyleRuns({italic, forcedOff});
+
+    size_t i = 0;
+    try {
+        for (auto&& text: texts) {
+            std::string out_string = serializeText(text);
+            ObjectInputStream istream;
+            istream.read(out_string.c_str(), out_string.size());
+
+            Text in_text;
+            in_text.readSerialized(istream);
+            EXPECT_EQ(text.getText(), in_text.getText());
+            EXPECT_EQ(text.getStyleRuns(), in_text.getStyleRuns());
+            ASSERT_EQ(text.getStyleRuns().size(), in_text.getStyleRuns().size());
+            for (size_t k = 0; k < text.getStyleRuns().size(); k++) {
+                EXPECT_EQ(text.getStyleRuns()[k].color, in_text.getStyleRuns()[k].color);
+            }
+            ++i;
+        }
+    } catch (const InputStreamException& e) {
+        std::cerr << "InputStreamException testing text " << i << ": " << e.what() << std::endl;
+        FAIL();
+    }
+}
+
+TEST(UtilObjectIOStream, testUnstyledTextSerializesLikeStock) {
+    // An unstyled element must write exactly what a stock Xournal++ build writes, so that it
+    // still pastes into one: the runs block is simply not there.
+    Text text;
+    text.setText("plain");
+
+    const std::string plain = serializeText(text);
+
+    TextStyleRun bold;
+    bold.start = 0;
+    bold.end = 5;
+    bold.bold = true;
+    text.setStyleRuns({bold});
+
+    const std::string styled = serializeText(text);
+
+    ASSERT_LT(plain.size(), styled.size());
+    // Everything but the two bytes of the object's end marker is the same in both
+    const std::string common = plain.substr(0, plain.size() - 2);
+    EXPECT_EQ(common, styled.substr(0, common.size())) << "the styled blob should extend the plain one";
 }
 
 TEST(UtilObjectIOStream, testReadLink) {

@@ -24,6 +24,7 @@
 #include "model/Point.h"                               // for Point
 #include "model/Stroke.h"                              // for StrokeTool, StrokeCapStyle
 #include "model/TextAlignment.h"                       // for TextAlignment
+#include "model/TextStyleRuns.h"                       // for parseStyleRuns
 #include "util/Assert.h"                               // for xoj_assert
 #include "util/Color.h"                                // for Color
 #include "util/EnumIndexedArray.h"                     // for EnumIndexedArray
@@ -468,6 +469,17 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
 
     this->builder.addText(std::string{font}, size, x, y, color, wrap, align, justify, std::move(tempFilename),
                           tempTimestamp);
+
+    // inline style runs (fork-only; see the comment on RUNS_STR in XmlAttrs.h)
+    if (const auto runsSV = XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::RUNS_STR, attributeMap)) {
+        if (auto runs = xoj::text::parseStyleRuns(*runsSV)) {
+            this->builder.setTextStyleRuns(std::move(*runs));
+        } else {
+            this->builder.logError(FS(_F("Found a text whose \"runs\" attribute is malformed: \"{1}\". "
+                                         "Loading the text without its styling") %
+                                      StringUtils::ellipsize(*runsSV)));
+        }
+    }
 
     this->tempTimestamp = 0;
 }

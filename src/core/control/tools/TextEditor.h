@@ -11,13 +11,17 @@
 
 #pragma once
 
-#include <string>  // for string
+#include <functional>  // for function
+#include <optional>    // for optional
+#include <string>      // for string
+#include <utility>     // for pair
 
 #include <gdk/gdk.h>      // for GdkEventKey
 #include <glib.h>         // for gint, gboolean, gchar
 #include <gtk/gtk.h>      // for GtkIMContext, GtkTextIter, GtkWidget
 #include <pango/pango.h>  // for PangoAttrList, PangoLayout
 
+#include "control/tools/TextRunTags.h"  // for InlineStyle
 #include "model/OverlayBase.h"
 #include "model/PageRef.h"  // for PageRef
 #include "util/Color.h"     // for Color
@@ -98,6 +102,15 @@ private:
     void toggleOverwrite();
     void toggleBoldFace();
     void toggleItalic();
+    /// Toggle one of the inline styles -- a pointer to the `bold` or `italic` member
+    void toggleStyle(std::optional<bool> xoj::text::InlineStyle::* which, bool baseState);
+    /// Restyle the selection, keeping the parts of its styling `change` does not touch
+    void applyStyleToSelection(const std::function<void(xoj::text::InlineStyle&)>& change);
+    /// What the edited element's own font description says, which a range with no run inherits
+    bool baseFontIsBold() const;
+    bool baseFontIsItalic() const;
+    /// The style text inserted at this point right now would get
+    xoj::text::InlineStyle styleForInsertionAt(const GtkTextIter* location) const;
     void increaseFontSize();
     void decreaseFontSize();
     void moveCursor(GtkMovementStep step, int count, bool extendSelection);
@@ -137,6 +150,11 @@ private:
     void resetImContext();
 
     static void bufferPasteDoneCallback(GtkTextBuffer* buffer, GtkClipboard* clipboard, TextEditor* te);
+
+    static void bufferInsertTextCallback(GtkTextBuffer* buffer, GtkTextIter* location, const gchar* text, gint len,
+                                         TextEditor* te);
+    static void bufferInsertedTextCallback(GtkTextBuffer* buffer, GtkTextIter* location, const gchar* text, gint len,
+                                           TextEditor* te);
 
     static void iMCommitCallback(GtkIMContext* context, const gchar* str, TextEditor* te);
     static void iMPreeditChangedCallback(GtkIMContext* context, TextEditor* te);
@@ -180,6 +198,30 @@ private:
 
     enum class LayoutStatus { UP_TO_DATE, NEEDS_ATTRIBUTES_UPDATE, NEEDS_PARAMETERS_UPDATE, NEEDS_COMPLETE_UPDATE };
     mutable LayoutStatus layoutStatus;
+
+    /**
+     * @brief The style a Ctrl+B / Ctrl+I pressed without a selection set up for the next
+     * insertion, if any.
+     *
+     * Unset means text typed at the cursor inherits the style of the character to its left, which
+     * is what happens the rest of the time. Any cursor movement puts it back to unset.
+     */
+    std::optional<xoj::text::InlineStyle> pendingStyle;
+
+    /// The style the insertion in progress applies, computed before the text lands in the buffer
+    xoj::text::InlineStyle insertionStyle;
+
+    /**
+     * @brief The byte range a paste in progress has inserted so far, if any.
+     *
+     * A paste is the one insertion that brings styling of its own: GTK re-applies the copied tags
+     * *after* the "insert-text" handlers have run, so forcing the surrounding style on the
+     * inserted text there would end up combining the two. The range is remembered instead, and
+     * bufferPasteDoneCallback() decides once the paste is complete: styled clipboard content
+     * keeps the styling it came with, and plain content takes after the text it lands behind.
+     */
+    std::optional<std::pair<int, int>> pasteRange;
+    bool pasteInProgress = false;
 
     // InputMethod preedit data
     int preeditCursor;
