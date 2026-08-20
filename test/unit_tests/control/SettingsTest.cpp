@@ -14,8 +14,11 @@
 #include "control/settings/Settings.h"
 
 TEST(SettingsTest, testLoadDoesNotThrowForNonExistingFilePath) {
-    Settings settings{"non-existing-file-path"};
+    const fs::path path = fs::temp_directory_path() / "xournalpp-test-units_Settings_testLoad_nonexisting.xml";
+    fs::remove(path);  // the test requires that the file not pre-exist
+    Settings settings{path};
     EXPECT_NO_THROW(settings.load());
+    fs::remove(path);  // load() regenerates a settings file at the path
 }
 
 // Rudimentary test for Settings save/load - very crude
