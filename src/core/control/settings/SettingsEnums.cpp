@@ -19,6 +19,20 @@ auto stylusCursorTypeFromString(const std::string& stylusCursorTypeStr) -> Stylu
     return STYLUS_CURSOR_DOT;
 }
 
+auto pointerMarkerShapeFromString(const std::string& shapeStr) -> PointerMarkerShape {
+    if (shapeStr == "disk") {
+        return POINTER_MARKER_DISK;
+    }
+    if (shapeStr == "ring") {
+        return POINTER_MARKER_RING;
+    }
+    if (shapeStr == "dot") {
+        return POINTER_MARKER_DOT;
+    }
+    g_warning("Settings::Unknown pointer marker shape: %s\n", shapeStr.c_str());
+    return POINTER_MARKER_DISK;
+}
+
 auto eraserVisibilityFromString(const std::string& eraserVisibility) -> EraserVisibility {
     if (eraserVisibility == "never") {
         return ERASER_VISIBILITY_NEVER;

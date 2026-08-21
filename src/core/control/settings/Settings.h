@@ -583,6 +583,17 @@ public:
     int getVideoRecordingPointerSize() const;
     void setVideoRecordingPointerSize(int pixels);
 
+    /**
+     * Which shape that marker takes.
+     *
+     * All three are drawn at the same size and all three put a mark on the exact tip; what they
+     * trade is how much of the page underneath survives. A disk is what a screen recorder normally
+     * uses and keeps the writing readable through it; a ring hides nothing at all but is easier to
+     * lose against busy ink; a dot is the most visible and the most opaque.
+     */
+    PointerMarkerShape getVideoRecordingPointerShape() const;
+    void setVideoRecordingPointerShape(PointerMarkerShape shape);
+
     // ---------------------------------------------------------------------------------------
     // Microphone processing
     //
@@ -1397,6 +1408,7 @@ private:
     std::string videoRecordingExtraArguments;
     bool videoRecordingShowPointer{};
     int videoRecordingPointerSize{};
+    PointerMarkerShape videoRecordingPointerShape{};
 
     /**
      * Microphone processing. Units are OBS's: dB for levels and gains, milliseconds for times,

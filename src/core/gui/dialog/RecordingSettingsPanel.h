@@ -50,6 +50,7 @@ private:
     GtkWidget* cbShowPointer = nullptr;
     GtkWidget* boxPointerSize = nullptr;
     GtkWidget* spPointerSize = nullptr;
+    GtkWidget* cbPointerShape = nullptr;
     GtkWidget* fcVideoFolder = nullptr;
     GtkWidget* enFfmpegPath = nullptr;
     GtkWidget* lbFfmpegStatus = nullptr;

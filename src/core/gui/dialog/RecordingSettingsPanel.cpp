@@ -9,7 +9,8 @@
 #include <algorithm>  // for max
 #include <string>     // for string, to_string
 
-#include "control/settings/Settings.h"  // for Settings
+#include "control/settings/Settings.h"       // for Settings
+#include "control/settings/SettingsEnums.h"  // for PointerMarkerShape
 #include "util/Color.h"                 // for rgb_to_GdkRGBA, GdkRGBA_to_rgb
 #include "util/PathUtil.h"              // for toGFilename, fromGFilename
 #include "util/i18n.h"                  // for _
@@ -180,6 +181,19 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
         gtk_box_pack_start(GTK_BOX(this->boxPointerSize), this->spPointerSize, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("px of the recorded frame")), FALSE, FALSE,
                            0);
+
+        this->cbPointerShape = gtk_combo_box_text_new();
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbPointerShape), "disk", _("Disk (translucent)"));
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbPointerShape), "ring", _("Ring (outline only)"));
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbPointerShape), "dot", _("Dot (solid)"));
+        gtk_widget_set_tooltip_text(this->cbPointerShape,
+                                    _("All three are the same size and all three mark the exact tip. What they trade "
+                                      "is how much of the page underneath survives: a disk keeps the writing readable "
+                                      "through it, a ring hides nothing at all but is easier to lose against busy "
+                                      "ink, and a dot is the most visible and the most opaque."));
+        gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("Shape:")), FALSE, FALSE, 6);
+        gtk_box_pack_start(GTK_BOX(this->boxPointerSize), this->cbPointerShape, FALSE, FALSE, 0);
+
         gtk_box_pack_start(GTK_BOX(content), this->boxPointerSize, FALSE, TRUE, 0);
         bindSensitivity(this->cbShowPointer, this->boxPointerSize);
 
@@ -521,6 +535,10 @@ void RecordingSettingsPanel::load(const Settings& settings) {
 
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbShowPointer), settings.isVideoRecordingShowPointer());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spPointerSize), settings.getVideoRecordingPointerSize());
+    if (!gtk_combo_box_set_active_id(GTK_COMBO_BOX(this->cbPointerShape),
+                                     pointerMarkerShapeToString(settings.getVideoRecordingPointerShape()))) {
+        gtk_combo_box_set_active_id(GTK_COMBO_BOX(this->cbPointerShape), "disk");
+    }
 
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spWidth), settings.getVideoRecordingWidth());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spHeight), settings.getVideoRecordingHeight());
@@ -575,6 +593,9 @@ void RecordingSettingsPanel::save(Settings& settings) {
     settings.setVideoRecordingKeepAudioFile(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbKeepAudioFile)));
     settings.setVideoRecordingShowPointer(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbShowPointer)));
     settings.setVideoRecordingPointerSize(gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spPointerSize)));
+    if (const gchar* shape = gtk_combo_box_get_active_id(GTK_COMBO_BOX(this->cbPointerShape)); shape != nullptr) {
+        settings.setVideoRecordingPointerShape(pointerMarkerShapeFromString(shape));
+    }
 
     if (gchar* folder = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(this->fcVideoFolder)); folder != nullptr) {
         settings.setVideoFolder(Util::fromGFilename(folder));

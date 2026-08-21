@@ -77,6 +77,21 @@ enum StylusCursorType {
     STYLUS_CURSOR_ARROW = 3,
 };
 
+/**
+ * How the pen's position is marked in the recorded picture and the projector.
+ *
+ * All three are the same size and all three mark the tip; what differs is how much of the page
+ * underneath they keep. See Settings::getVideoRecordingPointerShape.
+ */
+enum PointerMarkerShape {
+    /// A filled disc in the pen's color, translucent so the writing shows through it.
+    POINTER_MARKER_DISK = 0,
+    /// An outline only, hiding nothing at all.
+    POINTER_MARKER_RING = 1,
+    /// A solid disc, hiding whatever is under it.
+    POINTER_MARKER_DOT = 2,
+};
+
 enum EraserVisibility {
     ERASER_VISIBILITY_NEVER = 0,
     ERASER_VISIBILITY_ALWAYS = 1,
@@ -152,6 +167,19 @@ constexpr auto stylusCursorTypeToString(StylusCursorType stylusCursorType) -> co
     }
 }
 
+constexpr auto pointerMarkerShapeToString(PointerMarkerShape shape) -> const char* {
+    switch (shape) {
+        case POINTER_MARKER_DISK:
+            return "disk";
+        case POINTER_MARKER_RING:
+            return "ring";
+        case POINTER_MARKER_DOT:
+            return "dot";
+        default:
+            return "unknown";
+    }
+}
+
 constexpr auto eraserVisibilityToString(EraserVisibility eraserVisibility) -> const char* {
     switch (eraserVisibility) {
         case ERASER_VISIBILITY_NEVER:
@@ -205,6 +233,7 @@ constexpr auto emptyLastPageAppendToString(EmptyLastPageAppendType appendType) -
 }
 
 StylusCursorType stylusCursorTypeFromString(const std::string& stylusCursorTypeStr);
+PointerMarkerShape pointerMarkerShapeFromString(const std::string& shapeStr);
 EraserVisibility eraserVisibilityFromString(const std::string& eraserVisibilityStr);
 IconTheme iconThemeFromString(const std::string& iconThemeStr);
 ThemeVariant themeVariantFromString(const std::string& themeVariantStr);

@@ -253,6 +253,7 @@ void Settings::loadDefault() {
     this->videoRecordingExtraArguments = "";
     this->videoRecordingShowPointer = true;
     this->videoRecordingPointerSize = 24;
+    this->videoRecordingPointerShape = POINTER_MARKER_DISK;
 
     // Microphone processing defaults, in the same order the chain runs. A bare microphone into a
     // recording sounds like a bare microphone; these are the three things a streaming setup always
@@ -821,6 +822,8 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingPointerSize")) == 0) {
         this->videoRecordingPointerSize =
                 static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingPointerShape")) == 0) {
+        this->videoRecordingPointerShape = pointerMarkerShapeFromString(reinterpret_cast<const char*>(value));
 
         // Microphone processing
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorEnabled")) == 0) {
@@ -1427,6 +1430,9 @@ void Settings::save() {
     ATTACH_COMMENT("Draw a marker at the pen's position into the recorded picture.");
     SAVE_INT_PROP(videoRecordingPointerSize);
     ATTACH_COMMENT("Diameter of that marker, in pixels of the recorded frame.");
+    xmlNode = saveProperty("videoRecordingPointerShape",
+                           pointerMarkerShapeToString(this->videoRecordingPointerShape), root);
+    ATTACH_COMMENT("Shape of that marker, allowed values are \"disk\", \"ring\", and \"dot\"");
 
     SAVE_BOOL_PROP(micCompressorEnabled);
     SAVE_DOUBLE_PROP(micCompressorThreshold);
@@ -2845,6 +2851,18 @@ void Settings::setVideoRecordingPointerSize(int pixels) {
         return;
     }
     this->videoRecordingPointerSize = pixels;
+    save();
+}
+
+auto Settings::getVideoRecordingPointerShape() const -> PointerMarkerShape {
+    return this->videoRecordingPointerShape;
+}
+
+void Settings::setVideoRecordingPointerShape(PointerMarkerShape shape) {
+    if (this->videoRecordingPointerShape == shape) {
+        return;
+    }
+    this->videoRecordingPointerShape = shape;
     save();
 }
 

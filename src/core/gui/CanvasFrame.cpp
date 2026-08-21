@@ -11,6 +11,7 @@
 #include "control/jobs/Job.h"             // for Job, JOB_TYPE_RENDER
 #include "control/jobs/XournalScheduler.h"  // for XournalScheduler
 #include "control/settings/Settings.h"    // for Settings
+#include "control/settings/SettingsEnums.h"  // for PointerMarkerShape
 #include "gui/MainWindow.h"               // for MainWindow
 #include "gui/PageView.h"                 // for XojPageView
 #include "gui/XournalView.h"              // for XournalView
@@ -59,9 +60,8 @@ void renderPageContent(Control* control, const PageRef& page, cairo_t* cr) {
  * The caller's context is already scaled to the page and clipped to it, so everything here is in
  * document units and the marker comes out the same size whatever resolution the frame is.
  *
- * A translucent dot, the way every screen recorder marks a pointer, with a small solid one at its
- * center at the width the pen would actually draw. Translucency is what lets it sit on top of the
- * writing it is pointing at without hiding it.
+ * One of three shapes, all the same size and all marking the exact tip -- see PointerMarkerShape.
+ * What they trade is how much of the page underneath survives.
  */
 bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double pageWidth, double pageHeight,
                  double areaHeight, double scale) {
@@ -120,25 +120,59 @@ bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double page
     cairo_save(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
-    // The body of the dot. Translucent, which is the whole reason a dot can be used at all here:
-    // every screen recorder marks the pointer with one, and they get away with covering the thing
-    // being pointed at because what is underneath still shows through.
-    Util::cairo_set_source_rgbi(cr, color, 0.35);
-    cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-    cairo_fill(cr);
+    switch (settings->getVideoRecordingPointerShape()) {
+        case POINTER_MARKER_RING:
+            // Outline only. Hides nothing whatever, at the cost of being the easiest of the three
+            // to lose against a page already covered in ink of the same color -- which is what the
+            // dark edge stroked underneath it is for.
+            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.35);
+            cairo_set_line_width(cr, radius * 0.34);
+            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+            cairo_stroke(cr);
 
-    // A thin dark edge, so the dot has a boundary against a white page instead of fading into it.
-    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.30);
-    cairo_set_line_width(cr, std::max(radius * 0.09, 0.4));
-    cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-    cairo_stroke(cr);
+            Util::cairo_set_source_rgbi(cr, color, 0.85);
+            cairo_set_line_width(cr, radius * 0.22);
+            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+            cairo_stroke(cr);
+            break;
 
-    // The tip itself, solid and at the width the pen would draw, so the dot says exactly where the
-    // ink would land and not merely the neighborhood.
-    const double tip = std::clamp(tools->getThickness() / 2.0, radius * 0.12, radius * 0.4);
-    Util::cairo_set_source_rgbi(cr, color, 0.95);
-    cairo_arc(cr, x, y, tip, 0.0, 2.0 * M_PI);
-    cairo_fill(cr);
+        case POINTER_MARKER_DOT:
+            // Solid. The most visible and the most opaque: whatever it covers is gone for as long
+            // as the pen is over it.
+            Util::cairo_set_source_rgbi(cr, color, 1.0);
+            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+            cairo_fill(cr);
+
+            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.30);
+            cairo_set_line_width(cr, std::max(radius * 0.09, 0.4));
+            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+            cairo_stroke(cr);
+            break;
+
+        case POINTER_MARKER_DISK:
+        default:
+            // Translucent, which is what lets a filled shape sit on top of the writing it is
+            // pointing at: what is underneath still shows through.
+            Util::cairo_set_source_rgbi(cr, color, 0.35);
+            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+            cairo_fill(cr);
+
+            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.30);
+            cairo_set_line_width(cr, std::max(radius * 0.09, 0.4));
+            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+            cairo_stroke(cr);
+            break;
+    }
+
+    // The tip itself, solid and at the width the pen would draw, so the marker says exactly where
+    // the ink would land and not merely the neighborhood. A solid dot is already its own tip mark
+    // and would only be given a darker freckle by this.
+    if (settings->getVideoRecordingPointerShape() != POINTER_MARKER_DOT) {
+        const double tip = std::clamp(tools->getThickness() / 2.0, radius * 0.12, radius * 0.4);
+        Util::cairo_set_source_rgbi(cr, color, 0.95);
+        cairo_arc(cr, x, y, tip, 0.0, 2.0 * M_PI);
+        cairo_fill(cr);
+    }
 
     cairo_restore(cr);
     return true;

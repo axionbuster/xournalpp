@@ -28,13 +28,23 @@ the file. Left at that, a viewer sees ink appear with no idea where the pen was 
 and pointing at something already written -- half of what happens in a lecture -- shows nothing at
 all.
 
-So the frame draws its own marker at the pen: a translucent dot in the current pen's color, with a
-thin dark edge so it has a boundary against a white page, and a small solid dot at its center at
-the width the pen would actually draw. A dot because that is what every screen recorder uses, and
-translucent because that is what lets it sit on top of the writing it is pointing at without hiding
-it. The eraser gets a neutral gray, having no color of its own.
+So the frame draws its own marker at the pen, in the current pen's color -- the eraser gets a
+neutral gray, having no color of its own. Three shapes are offered. All are drawn at the same size,
+all have a thin dark edge so they have a boundary against a white page, and all mark the exact tip;
+what they trade is how much of the page underneath survives:
 
-It is on by default and turned off under **Preferences > Recording**. Its size is given in pixels
+| Shape | What it does |
+| --- | --- |
+| **Disk** (default) | A translucent fill, which is what every screen recorder uses. The writing stays readable straight through it. |
+| **Ring** | An outline only. Hides nothing whatever, but is the easiest of the three to lose against a page already covered in ink of the same color. |
+| **Dot** | A solid fill. The most visible, and the only one that actually covers what it is over. |
+
+Disk and ring also carry a small solid dot at the center, at the width the pen would draw, so the
+marker says exactly where the ink would land rather than merely the neighborhood. A solid dot is
+already its own tip mark and gets none.
+
+It is on by default and turned off under **Preferences > Video Recording > Recording**, where the
+shape is chosen too. Its size is given in pixels
 of the finished video, the same way the caption safe area is: a recording at the configured height
 draws it at exactly the number asked for, and a projector window of any size draws it
 proportionally, so 24 px looks the same in both.
