@@ -538,6 +538,14 @@ public:
     int getVideoRecordingVideoBitrate() const;
     void setVideoRecordingVideoBitrate(int kbits);
 
+    /// Constant quality, 1 (worst) to 100 (best); 0 encodes to the bitrate instead.
+    int getVideoRecordingQuality() const;
+    void setVideoRecordingQuality(int quality);
+
+    /// Seconds between keyframes, and the most a truncated recording can lose off its tail.
+    int getVideoRecordingKeyframeInterval() const;
+    void setVideoRecordingKeyframeInterval(int seconds);
+
     /// Audio bitrate in kbit/s.
     int getVideoRecordingAudioBitrate() const;
     void setVideoRecordingAudioBitrate(int kbits);
@@ -1409,6 +1417,8 @@ private:
     int videoRecordingHeight{};
     int videoRecordingFps{};
     int videoRecordingVideoBitrate{};
+    int videoRecordingQuality{};
+    int videoRecordingKeyframeInterval{};
     int videoRecordingAudioBitrate{};
     std::string videoRecordingVideoCodec;
     std::string videoRecordingAudioCodec;

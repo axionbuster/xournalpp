@@ -193,9 +193,112 @@ with `G_SPAWN_LEAVE_DESCRIPTORS_OPEN`. That flag also leaves the *writing* ends 
 child, so closing our copies at the end of a recording never produces an end of file and ffmpeg
 waits forever for input that cannot arrive.
 
-The defaults mirror an OBS "simple output" profile: 1920×1080 at 60 fps, 6000 kbit/s video,
-160 kbit/s AAC, hardware H.264 (`h264_videotoolbox` on Apple silicon), in a fragmented `.mov` --
-fragmented so a recording lost to a crash or a flat battery still plays up to the point it stopped.
+The defaults are 1920×1080 at 60 fps and 160 kbit/s AAC, in a fragmented `.mov` -- fragmented so a
+recording lost to a crash or a flat battery still plays up to the point it stopped. What encodes
+the picture, and how many bits it is allowed, are worked out rather than configured; the next two
+sections are about that.
+
+## Which encoder, and who decides
+
+`videoRecordingVideoCodec` is `auto` by default, which is not an encoder name but an instruction to
+go and find one. Encoders are tried in this order, and the first that works is used:
+
+| | |
+| --- | --- |
+| `hevc_videotoolbox` | Apple's media engine |
+| `h264_videotoolbox` | the same engine, on Macs that do not offer HEVC |
+| `hevc_nvenc`, `h264_nvenc` | NVIDIA |
+| `libx265`, `libx264` | the processor, if nothing else answered |
+
+Two things about that list are deliberate.
+
+**"Works" is established by encoding, not by asking.** `ffmpeg -encoders` lists what the binary was
+built with, which is a different question from what this machine can do: a Mac with no media engine
+lists both VideoToolbox encoders, and a machine with no card in it lists both NVENC ones. Each
+candidate is therefore given two frames to encode, with the same arguments a recording would use --
+the same pixel format going in, the same quality option, the same upload or conversion in front of
+it -- because those are what a working encoder has to accept. A probe that tested something simpler
+would pass encoders our own command line then breaks on. The whole thing takes about a third of a
+second and is remembered per ffmpeg binary, so the preferences page can rebuild its live preview on
+every keystroke without re-probing.
+
+**VAAPI and QSV are missing on purpose.** Both want a device opened and a surface format negotiated
+before they will take a frame, and none of that plumbing is here. Listing them would mean sometimes
+choosing an encoder that fails at the moment a lecture starts.
+
+The preferences page says which one was chosen and whether it is hardware, because it is the one
+setting on that page nobody picked.
+
+## Quality, not bitrate
+
+A bitrate is the wrong instrument for a page of handwriting. Most of a lecture is a still page being
+talked about, which needs almost no bits at all; a bitrate spends its budget anyway, and then a fast
+scroll arrives and the same budget is all there is. `videoRecordingQuality` asks for a picture
+instead, on VideoToolbox's 0-100 scale, and a still page then costs approximately nothing. Setting
+it to 0 goes back to `videoRecordingVideoBitrate`, for anyone who has to hit a fixed size.
+
+The software encoders do not have that scale -- theirs is `-crf`, which runs 51 to 0 in the other
+direction -- so they are handed the crf that corresponds to the same number. One control means one
+picture whichever encoder was chosen. Measured on the same 32-second recording, `h264_videotoolbox`
+and `hevc_videotoolbox` at quality 80 scored VMAF 97.40 and 97.30 against the same reference, which
+is what makes a single control honest.
+
+Three named settings sit in front of the number, and are what the preferences page shows first:
+
+| Preset | Quality | Keyframes |
+| --- | --- | --- |
+| Smaller files | 65 | every 4 s |
+| Balanced (default) | 80 | every 2 s |
+| Sharper picture | 92 | every 2 s |
+
+The keyframe interval belongs with them rather than beside them. ffmpeg's own default is twelve
+frames, which at 60 fps is five keyframes a second, and a keyframe is a whole 1080p page every time.
+On a page nobody is writing on that is essentially the entire file. Lengthening it and changing
+nothing else took a real 32-second recording from 9.4 MB to 2.2 MB. What it costs is what a
+truncated file loses: fragments start at keyframes, so a recording cut short by a crash loses at
+most one interval off its tail.
+
+Together with HEVC and the quality control, that same recording finishes at **2.19 MB against
+9.65 MB**, scoring VMAF 96.7 against the original -- 4.4 times smaller, for a picture that does not
+differ to look at.
+
+## What the conversion used to cost
+
+The frame pump writes BGRA, which is what a Cairo `ARGB32` surface already is in memory. Handing
+that to an encoder that wants YUV means a conversion, and doing it in software -- `-vf
+format=yuv420p`, converting 1920×1080 sixty times a second -- was costing more processor time than
+the encoding it was feeding. VideoToolbox will do the same conversion on the media engine, so it
+does, and which route the frames take depends on what the chosen encoder will accept:
+
+- **`hevc_videotoolbox` lists `bgra` among its input formats**, so the frames go in untouched and no
+  filter is inserted at all.
+- **`h264_videotoolbox` does not**, so `-init_hw_device videotoolbox` plus `hwupload` wraps them in
+  VideoToolbox surfaces and the conversion happens on the far side of that.
+- **Anything else is a software encoder** and still gets `format=yuv420p`, because there is nowhere
+  else for the work to go.
+
+Measured over 300 frames at 1080p, the software conversion took 2.76 s of processor time and the
+hardware routes took 0.94 s and 1.03 s. On the same clip, `libx265` needed 20.48 s and `libx264`
+5.65 s to do the encoding the media engine did in well under one.
+
+That the media engine is genuinely doing it can be checked without instrumentation: ffmpeg's
+`allow_sw` option defaults to *false* for the VideoToolbox encoders, so an encode that succeeds at
+all is a hardware encode. Forcing `-require_sw 1` on the same clip took 19.7 s of wall time against
+1.8 s. There is no separate encoder process on Apple silicon -- the work goes to the media engine
+through the kernel driver rather than to a `VTEncoderXPCService` -- so a process-level measurement
+of ffmpeg is a fair one, and during a 1080p60 encode ffmpeg does not reach the top four processes
+by processor use.
+
+On macOS the sound takes the same route: `aac_at` is AudioToolbox's AAC encoder, Apple's own, and
+used about a third of the processor time of ffmpeg's built-in `aac` on the same audio.
+
+## HEVC has to be tagged `hvc1`
+
+QuickTime plays HEVC in `.mov` and `.mp4` only under the `hvc1` sample entry. ffmpeg writes `hev1`
+by default, and the difference is not cosmetic: a `hev1` file opens to a window that never paints,
+and QuickLook hangs on it outright rather than failing. `-tag:v hvc1` is therefore set whenever the
+container can carry it. Everything that plays `hev1` also plays `hvc1`, so there is nothing to
+weigh up and it is not conditional on the platform.
 
 The exact command line is shown, live, in **Preferences → Video Recording**, built from the values
 currently in the dialog rather than the saved ones. `VideoRecorderConfig` exists for that reason: it
@@ -335,7 +438,8 @@ they say during a recording:
 | `src/core/gui/CanvasFrame.{h,cpp}` | the one function that draws "the page, alone", the pen marker, the frame cache and the frame rate meter |
 | `src/core/gui/XournalView.{h,cpp}` | where the pen was last seen, fed from `InputContext` |
 | `src/core/gui/ProjectorWindow.{h,cpp}` | the projector window, the caption guide and the frame rate indicator |
-| `src/core/gui/dialog/RecordingSettingsPanel.{h,cpp}` | the preferences page |
+| `src/core/gui/dialog/RecordingSettingsPanel.{h,cpp}` | the preferences page, the quality presets |
+| `test/unit_tests/control/VideoRecorderCommandLineTest.cpp` | what the command line must contain |
 | `src/core/control/Control.cpp` | `startRecording` / `stopRecording`, projector lifetime |
 
 ## Testing

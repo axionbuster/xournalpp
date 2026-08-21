@@ -8,12 +8,14 @@
 
 #include "VideoRecorder.h"
 
-#include <algorithm>  // for max, min
+#include <algorithm>  // for max, min, clamp
 #include <array>      // for array
+#include <map>        // for map
 #include <chrono>     // for steady_clock
-#include <cmath>      // for abs, sqrt
+#include <cmath>      // for abs, sqrt, lround
 #include <cstdio>     // for snprintf
 #include <ctime>      // for localtime, time
+#include <string_view>  // for string_view
 #include <utility>    // for move
 
 #ifndef G_OS_WIN32
@@ -120,6 +122,160 @@ auto VideoRecorder::resolveFfmpeg(const std::string& configuredPath) -> fs::path
 
 auto VideoRecorder::resolveFfmpeg(const Settings& settings) -> fs::path {
     return resolveFfmpeg(settings.getVideoRecordingFfmpegPath());
+}
+
+// -------------------------------------------------------------------------------------------
+// Which encoder this machine should use
+// -------------------------------------------------------------------------------------------
+
+namespace {
+
+/**
+ * The encoders this recorder knows how to drive, best first.
+ *
+ * Hardware before software, and the newer codec before the older one within each. "Knows how to
+ * drive" is the limit on this list rather than "exists": VAAPI and QSV want a device opened and a
+ * surface format negotiated before they will take a frame, and none of that plumbing is here, so
+ * offering them would mean choosing an encoder that then fails at the moment a lecture starts.
+ */
+constexpr std::array<const char*, 6> ENCODER_CANDIDATES = {
+        "hevc_videotoolbox",  // Apple silicon and recent Intel Macs
+        "h264_videotoolbox",  // older Macs, and the fallback if HEVC is not offered
+        "hevc_nvenc",         // NVIDIA
+        "h264_nvenc",         //
+        "libx265",            // processor, last resort
+        "libx264",            //
+};
+
+/// Encoder names ffmpeg admits to having, which is necessary but a long way from sufficient.
+auto listEncoders(const fs::path& ffmpeg) -> std::string {
+    gchar* out = nullptr;
+    gint status = 0;
+    // Held in a named string: a temporary's c_str() would dangle before the spawn reads it.
+    const std::string exe = ffmpeg.string();
+    const std::array<const char*, 4> argv = {exe.c_str(), "-hide_banner", "-encoders", nullptr};
+
+    if (!g_spawn_sync(nullptr, const_cast<gchar**>(argv.data()), nullptr,
+                      static_cast<GSpawnFlags>(G_SPAWN_STDERR_TO_DEV_NULL), nullptr, nullptr, &out, nullptr, &status,
+                      nullptr)) {
+        return {};
+    }
+
+    std::string listed = out != nullptr ? out : "";
+    g_free(out);
+    return listed;
+}
+
+/**
+ * Whether @p codec really encodes on this machine, established by encoding with it.
+ *
+ * Asking ffmpeg what it was built with does not answer the question. A Mac with no media engine
+ * still lists both VideoToolbox encoders; a machine with the NVIDIA encoders built in still lists
+ * them with no card in the slot. Both fail when the first frame arrives, and the first frame
+ * arrives when somebody has started lecturing. Two frames now settles it instead.
+ *
+ * The trial runs the same arguments a recording would -- the same pixel format going in, the same
+ * quality option, the same upload or conversion in front of the encoder -- because those are what
+ * a working encoder has to accept. A generic probe would pass on encoders our own command line
+ * then breaks on.
+ */
+auto encoderWorks(const fs::path& ffmpeg, const std::string& codec, int quality) -> bool {
+    VideoRecorderConfig trial;
+    trial.ffmpeg = ffmpeg;
+    trial.width = 320;
+    trial.height = 240;
+    trial.fps = 30;
+    trial.videoQuality = quality;
+    trial.videoCodec = codec;
+    trial.container = "null";
+    trial.withAudio = false;
+
+    // Everything from "-c:v" onwards, which is the part being tested. The frames come from a
+    // generated source in the pixel format the frame pump writes, rather than from a pipe.
+    std::vector<std::string> args = trial.buildCommandLine("-", -1);
+    const auto encoderStart = std::find(args.begin(), args.end(), "-vf") != args.end() ?
+                                      std::find(args.begin(), args.end(), "-vf") :
+                                      std::find(args.begin(), args.end(), "-c:v");
+
+    std::vector<std::string> probe = {ffmpeg.string(), "-hide_banner", "-loglevel", "error", "-nostdin",
+                                      "-f",            "lavfi",        "-i",        "color=c=black:s=320x240:r=30,format=bgra",
+                                      "-frames:v",     "2"};
+    // The hardware device, when the chosen encoder needs one, is a global option and has to come
+    // before the encoder arguments it applies to.
+    if (const auto device = std::find(args.begin(), args.end(), "-init_hw_device"); device != args.end()) {
+        probe.insert(probe.begin() + 1, {*device, *std::next(device), "-filter_hw_device", "vt"});
+    }
+    probe.insert(probe.end(), encoderStart, args.end() - 1);
+    probe.insert(probe.end(), {"-f", "null", "-"});
+
+    std::vector<gchar*> argv;
+    argv.reserve(probe.size() + 1);
+    for (const std::string& arg: probe) {
+        argv.push_back(const_cast<gchar*>(arg.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    gint status = 0;
+    if (!g_spawn_sync(nullptr, argv.data(), nullptr,
+                      static_cast<GSpawnFlags>(G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL), nullptr,
+                      nullptr, nullptr, nullptr, &status, nullptr)) {
+        return false;
+    }
+    return g_spawn_check_wait_status(status, nullptr);
+}
+
+}  // namespace
+
+auto VideoRecorder::detectVideoCodec(const fs::path& ffmpeg, int quality) -> std::string {
+    if (ffmpeg.empty()) {
+        return "libx264";
+    }
+
+    // Probing spawns processes, and the preferences page rebuilds its command-line preview on
+    // every keystroke. The answer cannot change while the application is running unless the
+    // ffmpeg binary does, so it is worked out once per binary and remembered.
+    static std::mutex lock;
+    static std::map<std::string, std::string> answers;
+
+    const std::string key = ffmpeg.string();
+    {
+        const std::lock_guard<std::mutex> guard(lock);
+        if (const auto it = answers.find(key); it != answers.end()) {
+            return it->second;
+        }
+    }
+
+    const std::string listed = listEncoders(ffmpeg);
+    std::string chosen;
+    for (const char* candidate: ENCODER_CANDIDATES) {
+        if (listed.find(candidate) == std::string::npos) {
+            continue;
+        }
+        if (encoderWorks(ffmpeg, candidate, quality)) {
+            chosen = candidate;
+            break;
+        }
+        g_message("VideoRecorder: %s is built in but does not encode here; trying the next one", candidate);
+    }
+
+    if (chosen.empty()) {
+        // Nothing answered. libx264 is the encoder most likely to exist at all, and a recording
+        // that runs slowly beats one that refuses to start.
+        chosen = "libx264";
+    }
+    g_message("VideoRecorder: encoding with %s", chosen.c_str());
+
+    const std::lock_guard<std::mutex> guard(lock);
+    answers[key] = chosen;
+    return chosen;
+}
+
+auto VideoRecorder::resolveVideoCodec(const fs::path& ffmpeg, const std::string& configured, int quality)
+        -> std::string {
+    if (!configured.empty() && configured != "auto") {
+        return configured;
+    }
+    return detectVideoCodec(ffmpeg, quality);
 }
 
 // ===========================================================================================
@@ -251,6 +407,32 @@ auto AudioFilterConfig::buildFilterChain() const -> std::string {
 // 3. Command line
 // ===========================================================================================
 
+namespace {
+
+/// True for ffmpeg's Apple hardware encoders, which are the ones that take a VideoToolbox surface.
+auto isVideoToolbox(const std::string& codec) -> bool {
+    static constexpr std::string_view SUFFIX = "_videotoolbox";
+    return codec.size() > SUFFIX.size() && codec.compare(codec.size() - SUFFIX.size(), SUFFIX.size(), SUFFIX) == 0;
+}
+
+auto isHevc(const std::string& codec) -> bool { return codec.rfind("hevc", 0) == 0 || codec.rfind("libx265", 0) == 0; }
+
+/**
+ * The x264/x265 constant-rate-factor that corresponds to a quality on our 0-100 scale.
+ *
+ * VideoToolbox and the software encoders disagree about which way quality counts and over what
+ * range: -q:v runs 0-100 upwards, -crf runs 51-0 upwards. One number in the preferences has to
+ * mean the same picture in both, so the mapping is fixed here rather than left to the user.
+ * The useful part of the crf range is roughly 14 (visually lossless) to 40 (obviously soft).
+ */
+auto qualityToCrf(int quality) -> int {
+    const int clamped = std::clamp(quality, 1, 100);
+    return static_cast<int>(std::lround(40.0 - (40.0 - 14.0) * (clamped / 100.0)));
+}
+
+}  // namespace
+
+
 auto VideoRecorderConfig::fromSettings(const Settings& settings) -> VideoRecorderConfig {
     VideoRecorderConfig config;
 
@@ -259,8 +441,11 @@ auto VideoRecorderConfig::fromSettings(const Settings& settings) -> VideoRecorde
     config.height = settings.getVideoRecordingHeight();
     config.fps = settings.getVideoRecordingFps();
     config.videoBitrate = settings.getVideoRecordingVideoBitrate();
+    config.videoQuality = settings.getVideoRecordingQuality();
+    config.keyframeInterval = settings.getVideoRecordingKeyframeInterval();
     config.audioBitrate = settings.getVideoRecordingAudioBitrate();
-    config.videoCodec = settings.getVideoRecordingVideoCodec();
+    config.videoCodec = VideoRecorder::resolveVideoCodec(config.ffmpeg, settings.getVideoRecordingVideoCodec(),
+                                                        config.videoQuality);
     config.audioCodec = settings.getVideoRecordingAudioCodec();
     config.container = settings.getVideoRecordingContainer();
     config.extraArguments = settings.getVideoRecordingExtraArguments();
@@ -285,11 +470,37 @@ auto VideoRecorderConfig::buildCommandLine(const fs::path& file, int audioFd) co
     const int frameWidth = std::max(2, width);
     const int frameHeight = std::max(2, height);
 
+    const std::string codec = videoCodec.empty() ? "libx264" : videoCodec;
+    const bool hardware = isVideoToolbox(codec);
+
+    // Where the BGRA the frame pump writes becomes something the encoder takes.
+    //
+    // Nothing here is free, and the software route is the expensive one: swscale converting
+    // 1920x1080 sixty times a second is the single largest block of processor time this feature
+    // spends, larger than the encoding. VideoToolbox will do the same conversion on the media
+    // engine, for a measured third of the processor time, but the two hardware encoders differ in
+    // what they will accept:
+    //
+    //   - hevc_videotoolbox lists bgra among its input formats, so the frames go in untouched.
+    //   - h264_videotoolbox does not, so the frames are wrapped in VideoToolbox surfaces first and
+    //     the conversion happens on the far side of that.
+    //
+    // Anything else is a software encoder and needs the software conversion.
+    const bool directBgra = hardware && isHevc(codec);
+    const bool uploadFrames = hardware && !directBgra;
+
     argv.emplace_back(ffmpeg.empty() ? "ffmpeg" : ffmpeg.string());
     argv.emplace_back("-hide_banner");
     argv.emplace_back("-loglevel");
     argv.emplace_back("warning");
     argv.emplace_back("-y");
+
+    if (uploadFrames) {
+        argv.emplace_back("-init_hw_device");
+        argv.emplace_back("videotoolbox=vt");
+        argv.emplace_back("-filter_hw_device");
+        argv.emplace_back("vt");
+    }
 
     // --- video in, straight off the pipe ---------------------------------------------------
     // Cairo's ARGB32 is BGRA in memory on a little-endian machine, which is what "bgra" means to
@@ -319,14 +530,47 @@ auto VideoRecorderConfig::buildCommandLine(const fs::path& file, int audioFd) co
     }
 
     // --- encoders --------------------------------------------------------------------------
-    // Required by every hardware H.264 encoder and by anything that will play the file back.
-    argv.emplace_back("-vf");
-    argv.emplace_back("format=yuv420p");
+    if (uploadFrames) {
+        argv.emplace_back("-vf");
+        argv.emplace_back("hwupload");
+    } else if (!directBgra) {
+        argv.emplace_back("-vf");
+        argv.emplace_back("format=yuv420p");
+    }
 
     argv.emplace_back("-c:v");
-    argv.emplace_back(videoCodec.empty() ? "libx264" : videoCodec);
-    argv.emplace_back("-b:v");
-    argv.emplace_back(std::to_string(std::max(1, videoBitrate)) + "k");
+    argv.emplace_back(codec);
+
+    // How many bits the picture is worth.
+    //
+    // A bitrate is the wrong instrument for a page of handwriting. Most of a lecture is a still
+    // page being talked about, which needs almost no bits at all, and a bitrate spends its budget
+    // anyway; then a fast scroll arrives and the same budget is all there is. Constant quality
+    // spends what each frame actually needs, which on this material is a fraction of the bitrate
+    // and better looking at the moments that matter. A quality of 0 asks for the bitrate instead,
+    // for anyone who has to hit a fixed size.
+    if (videoQuality > 0) {
+        if (hardware) {
+            argv.emplace_back("-q:v");
+            argv.emplace_back(std::to_string(std::clamp(videoQuality, 1, 100)));
+        } else {
+            argv.emplace_back("-crf");
+            argv.emplace_back(std::to_string(qualityToCrf(videoQuality)));
+        }
+    } else {
+        argv.emplace_back("-b:v");
+        argv.emplace_back(std::to_string(std::max(1, videoBitrate)) + "k");
+    }
+
+    // How often a frame is coded without reference to any other.
+    //
+    // ffmpeg's own default is twelve frames, which at 60 fps is five keyframes a second, and a
+    // keyframe is a whole 1080p page every time. On a page nobody is writing on that is the entire
+    // file: measured on a real recording, leaving everything else alone and only lengthening this
+    // took 9.4 MB down to 2.2 MB. The cost is what a truncated file loses -- fragments start at
+    // keyframes, so a recording cut short by a crash loses at most this much of its tail.
+    argv.emplace_back("-g");
+    argv.emplace_back(std::to_string(std::max(1, frameRate * std::max(1, keyframeInterval))));
 
     if (audioFd >= 0) {
         if (const std::string chain = audioFilters.buildFilterChain(); !chain.empty()) {
@@ -342,6 +586,15 @@ auto VideoRecorderConfig::buildCommandLine(const fs::path& file, int audioFd) co
     }
 
     if (container == "mp4" || container == "mov") {
+        // QuickTime plays HEVC only under the "hvc1" sample entry. ffmpeg writes "hev1" by
+        // default, and the difference is not cosmetic: a hev1 file opens to a window that never
+        // paints, and QuickLook hangs on it outright. Everything that plays hev1 also plays hvc1,
+        // so this is set whenever the container can carry it rather than only on Apple.
+        if (isHevc(codec)) {
+            argv.emplace_back("-tag:v");
+            argv.emplace_back("hvc1");
+        }
+
         // Fragmented, so a recording lost to a crash or a flat battery is still playable up to the
         // point it stopped, and faststart so a finished one is seekable immediately.
         argv.emplace_back("-movflags");

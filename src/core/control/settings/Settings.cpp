@@ -1,6 +1,6 @@
 #include "Settings.h"
 
-#include <algorithm>    // for max
+#include <algorithm>    // for max, clamp
 #include <cstdint>      // for uint32_t, int32_t
 #include <cstdio>       // for sscanf, size_t
 #include <cstdlib>      // for atoi
@@ -241,14 +241,22 @@ void Settings::loadDefault() {
     this->videoRecordingHeight = 1080;
     this->videoRecordingFps = 60;
     this->videoRecordingVideoBitrate = 6000;
+    // Constant quality rather than that bitrate, which is only consulted when this is 0. On real
+    // lecture material 80 matches what 6000 kbit/s produced, in a quarter of the space.
+    this->videoRecordingQuality = 80;
+    this->videoRecordingKeyframeInterval = 2;
     this->videoRecordingAudioBitrate = 160;
+    // Not a codec name but an instruction to go and find out, because the right answer differs
+    // between two machines running the same build and neither the user nor this file can see which
+    // one it is on. VideoRecorder::detectVideoCodec tries the graphics hardware first and settles
+    // each candidate by encoding with it. See readme/VideoRecording.md.
+    this->videoRecordingVideoCodec = "auto";
 #ifdef __APPLE__
-    // The hardware encoder. Software x264 at 1080p60 costs a core that the drawing needs more.
-    this->videoRecordingVideoCodec = "h264_videotoolbox";
+    // AudioToolbox's AAC: Apple's own encoder, and a third of the processor time of ffmpeg's.
+    this->videoRecordingAudioCodec = "aac_at";
 #else
-    this->videoRecordingVideoCodec = "libx264";
-#endif
     this->videoRecordingAudioCodec = "aac";
+#endif
     this->videoRecordingContainer = "mov";
     this->videoRecordingExtraArguments = "";
     this->videoRecordingShowPointer = true;
@@ -809,6 +817,13 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingAudioBitrate")) == 0) {
         this->videoRecordingAudioBitrate =
                 static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingQuality")) == 0) {
+        this->videoRecordingQuality = std::clamp(static_cast<int>(g_ascii_strtoll(
+                                                         reinterpret_cast<const char*>(value), nullptr, 10)),
+                                                 0, 100);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingKeyframeInterval")) == 0) {
+        this->videoRecordingKeyframeInterval = std::max(
+                1, static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10)));
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingVideoCodec")) == 0) {
         this->videoRecordingVideoCodec = reinterpret_cast<const char*>(value);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingAudioCodec")) == 0) {
@@ -1417,6 +1432,10 @@ void Settings::save() {
     SAVE_INT_PROP(videoRecordingHeight);
     SAVE_INT_PROP(videoRecordingFps);
     SAVE_INT_PROP(videoRecordingVideoBitrate);
+    SAVE_INT_PROP(videoRecordingQuality);
+    ATTACH_COMMENT("Constant quality, 1 (worst) to 100 (best). 0 uses videoRecordingVideoBitrate instead.");
+    SAVE_INT_PROP(videoRecordingKeyframeInterval);
+    ATTACH_COMMENT("Seconds between keyframes. Also the most a truncated recording loses off its tail.");
     ATTACH_COMMENT("Video bitrate in kbit/s.");
     SAVE_INT_PROP(videoRecordingAudioBitrate);
     ATTACH_COMMENT("Audio bitrate in kbit/s.");
@@ -2780,6 +2799,28 @@ void Settings::setVideoRecordingVideoBitrate(int value) {
         return;
     }
     this->videoRecordingVideoBitrate = value;
+    save();
+}
+
+auto Settings::getVideoRecordingQuality() const -> int { return this->videoRecordingQuality; }
+
+void Settings::setVideoRecordingQuality(int value) {
+    const int clamped = std::clamp(value, 0, 100);
+    if (this->videoRecordingQuality == clamped) {
+        return;
+    }
+    this->videoRecordingQuality = clamped;
+    save();
+}
+
+auto Settings::getVideoRecordingKeyframeInterval() const -> int { return this->videoRecordingKeyframeInterval; }
+
+void Settings::setVideoRecordingKeyframeInterval(int value) {
+    const int clamped = std::max(1, value);
+    if (this->videoRecordingKeyframeInterval == clamped) {
+        return;
+    }
+    this->videoRecordingKeyframeInterval = clamped;
     save();
 }
 

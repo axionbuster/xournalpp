@@ -124,9 +124,20 @@ struct VideoRecorderConfig {
     int height = 1080;
     int fps = 60;
 
-    /// Bitrates in kbit/s.
+    /// Bitrates in kbit/s. The video one is used only when videoQuality is 0.
     int videoBitrate = 6000;
     int audioBitrate = 160;
+
+    /**
+     * Constant quality, 1 (worst) to 100 (best), or 0 to encode to videoBitrate instead.
+     *
+     * The scale is VideoToolbox's -q:v. Software encoders are given the -crf that corresponds to
+     * it, so the number means the same picture whichever encoder is in use.
+     */
+    int videoQuality = 80;
+
+    /// Seconds between keyframes. Also the most a truncated recording can lose off its tail.
+    int keyframeInterval = 2;
 
     std::string videoCodec = "libx264";
     std::string audioCodec = "aac";
@@ -235,6 +246,20 @@ public:
      * "ffmpeg" on PATH or in one of the usual package prefixes. Empty when nothing was found.
      */
     static fs::path resolveFfmpeg(const Settings& settings);
+
+    /**
+     * The encoder to use when the preference says "auto": the best one that actually encodes here.
+     *
+     * Candidates are tried hardware first, and each is tried by encoding two frames with the
+     * arguments a real recording would use. Listing an encoder is not evidence it works -- a Mac
+     * with no media engine lists both VideoToolbox encoders, and a machine with no NVIDIA card
+     * lists both NVENC ones -- and the alternative to finding out here is finding out when
+     * somebody presses record. The answer is remembered per ffmpeg binary.
+     */
+    static std::string detectVideoCodec(const fs::path& ffmpeg, int quality);
+
+    /// @p configured unless it is empty or "auto", in which case detectVideoCodec() decides.
+    static std::string resolveVideoCodec(const fs::path& ffmpeg, const std::string& configured, int quality);
 
     /// resolveFfmpeg for an explicit override string rather than the saved one.
     static fs::path resolveFfmpeg(const std::string& configuredPath);

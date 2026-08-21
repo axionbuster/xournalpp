@@ -106,6 +106,37 @@ auto makePair(GtkWidget* first, const char* separator, GtkWidget* second) -> Gtk
     return box;
 }
 
+/**
+ * The named points on the quality curve.
+ *
+ * Quality is VideoToolbox's 0-100 scale, which the software encoders are given the matching -crf
+ * for, so one number means one picture whichever encoder ends up being used. The figures beside
+ * each are what a 32-second recording of real lecture notes came out at, at 1080p60: the same
+ * material was 9.4 MB before any of this, so even the sharpest setting here is a large saving.
+ */
+struct QualityPreset {
+    const char* id;
+    const char* label;
+    int quality;
+    int keyframeInterval;
+};
+
+constexpr std::array<QualityPreset, 3> QUALITY_PRESETS = {
+        QualityPreset{"smaller", N_("Smaller files"), 65, 4},
+        QualityPreset{"balanced", N_("Balanced (recommended)"), 80, 2},
+        QualityPreset{"sharper", N_("Sharper picture"), 92, 2},
+};
+
+/// The preset @p quality and @p keyframeInterval correspond to, or "custom" if they match none.
+auto presetIdFor(int quality, int keyframeInterval) -> const char* {
+    for (const auto& preset: QUALITY_PRESETS) {
+        if (preset.quality == quality && preset.keyframeInterval == keyframeInterval) {
+            return preset.id;
+        }
+    }
+    return "custom";
+}
+
 auto makeHint(const char* text) -> GtkWidget* {
     GtkWidget* label = gtk_label_new(nullptr);
     gchar* markup = g_markup_printf_escaped("<i>%s</i>", text);
@@ -234,33 +265,72 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
         this->spFps = makeSpin(1, 240, 1);
         addRow(grid, row++, _("Frame rate:"), this->spFps);
 
+        // The only picture control most people should ever touch. What sits behind it -- the
+        // encoder, the quality number, the keyframe interval -- are three settings that only mean
+        // anything together, and picking them apart is how a recording ends up either enormous or
+        // soft. The named choices are calibrated points on that curve.
+        this->cbQualityPreset = gtk_combo_box_text_new();
+        for (const auto& preset: QUALITY_PRESETS) {
+            gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbQualityPreset), preset.id, _(preset.label));
+        }
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbQualityPreset), "custom", _("Custom"));
+        addRow(grid, row++, _("Quality:"), this->cbQualityPreset);
+
+        gtk_box_pack_start(GTK_BOX(content), grid, FALSE, TRUE, 0);
+
+        this->lbEncoderStatus = makeHint("");
+        gtk_box_pack_start(GTK_BOX(content), this->lbEncoderStatus, FALSE, TRUE, 0);
+
+        // --- everything the preset was deciding for you ------------------------------------
+        GtkWidget* advanced = gtk_expander_new(_("Advanced"));
+        GtkWidget* advancedGrid = makeGrid();
+        gtk_widget_set_margin_top(advancedGrid, ROW_SPACING);
+        int advancedRow = 0;
+
+        this->spVideoQuality = makeSpin(0, 100, 5);
+        gtk_widget_set_tooltip_text(this->spVideoQuality,
+                                    _("How good the picture has to look, rather than how many bits it may spend. "
+                                      "A still page then costs almost nothing and a fast scroll gets what it "
+                                      "needs. Set this to 0 to encode to the bitrate below instead."));
+        addRow(advancedGrid, advancedRow++, _("Quality (0 = use bitrate):"), this->spVideoQuality);
+
         this->spVideoBitrate = makeSpin(100, 200000, 500);
-        addRow(grid, row++, _("Video bitrate (kbit/s):"), this->spVideoBitrate);
+        gtk_widget_set_tooltip_text(this->spVideoBitrate, _("Used only when the quality above is 0."));
+        addRow(advancedGrid, advancedRow++, _("Video bitrate (kbit/s):"), this->spVideoBitrate);
+
+        this->spKeyframeInterval = makeSpin(1, 60, 1);
+        gtk_widget_set_tooltip_text(this->spKeyframeInterval,
+                                    _("Seconds between frames coded on their own. Longer is markedly smaller on a "
+                                      "page that is mostly being talked about; it is also the most a recording cut "
+                                      "short by a crash can lose off its tail."));
+        addRow(advancedGrid, advancedRow++, _("Keyframe interval (s):"), this->spKeyframeInterval);
 
         this->spAudioBitrate = makeSpin(32, 512, 32);
-        addRow(grid, row++, _("Audio bitrate (kbit/s):"), this->spAudioBitrate);
+        addRow(advancedGrid, advancedRow++, _("Audio bitrate (kbit/s):"), this->spAudioBitrate);
 
         this->enVideoCodec = gtk_entry_new();
         gtk_widget_set_tooltip_text(this->enVideoCodec,
-                                    _("An ffmpeg encoder name. h264_videotoolbox and h264_nvenc use the graphics "
-                                      "hardware; libx264 uses the processor."));
-        addRow(grid, row++, _("Video encoder:"), this->enVideoCodec);
+                                    _("An ffmpeg encoder name, or \"auto\" to use the best one this machine can "
+                                      "actually encode with -- graphics hardware first, the processor only if "
+                                      "nothing else answers."));
+        addRow(advancedGrid, advancedRow++, _("Video encoder:"), this->enVideoCodec);
 
         this->enAudioCodec = gtk_entry_new();
-        addRow(grid, row++, _("Audio encoder:"), this->enAudioCodec);
+        addRow(advancedGrid, advancedRow++, _("Audio encoder:"), this->enAudioCodec);
 
         this->cbContainer = gtk_combo_box_text_new();
         gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbContainer), "mov", "QuickTime (.mov)");
         gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbContainer), "mp4", "MPEG-4 (.mp4)");
         gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(this->cbContainer), "mkv", "Matroska (.mkv)");
-        addRow(grid, row++, _("Container:"), this->cbContainer);
+        addRow(advancedGrid, advancedRow++, _("Container:"), this->cbContainer);
 
         this->enExtraArguments = gtk_entry_new();
         gtk_widget_set_tooltip_text(this->enExtraArguments,
                                     _("Appended to the ffmpeg command last, so they override everything above."));
-        addRow(grid, row++, _("Extra ffmpeg arguments:"), this->enExtraArguments);
+        addRow(advancedGrid, advancedRow++, _("Extra ffmpeg arguments:"), this->enExtraArguments);
 
-        gtk_box_pack_start(GTK_BOX(content), grid, FALSE, TRUE, 0);
+        gtk_container_add(GTK_CONTAINER(advanced), advancedGrid);
+        gtk_box_pack_start(GTK_BOX(content), advanced, FALSE, TRUE, 0);
 
         gtk_box_pack_start(GTK_BOX(content), makeHint(_("The command a recording would run:")), FALSE, TRUE, 0);
 
@@ -422,7 +492,14 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
     // not what was saved. Rebuilding it reads widgets and formats a string -- no process is
     // spawned -- so doing it on every keystroke is cheap enough.
     auto onChanged = G_CALLBACK(+[](GtkWidget*, RecordingSettingsPanel* self) { self->updatePreview(); });
-    for (GtkWidget* widget: {this->spWidth, this->spHeight, this->spFps, this->spVideoBitrate, this->spAudioBitrate,
+    g_signal_connect(this->cbQualityPreset, "changed", G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
+                         auto* self = static_cast<RecordingSettingsPanel*>(data);
+                         self->applyQualityPreset(gtk_combo_box_get_active_id(combo));
+                     }),
+                     this);
+
+    for (GtkWidget* widget: {this->spWidth, this->spHeight, this->spFps, this->spVideoQuality,
+                             this->spKeyframeInterval, this->spVideoBitrate, this->spAudioBitrate,
                              this->spCompressorThreshold, this->spCompressorRatio, this->spCompressorAttack,
                              this->spCompressorRelease, this->spCompressorOutputGain, this->spEqualizerLow,
                              this->spEqualizerMid, this->spEqualizerHigh}) {
@@ -454,8 +531,14 @@ auto RecordingSettingsPanel::readConfig() const -> VideoRecorderConfig {
     config.height = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spHeight));
     config.fps = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spFps));
     config.videoBitrate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spVideoBitrate));
+    config.videoQuality = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spVideoQuality));
+    config.keyframeInterval = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spKeyframeInterval));
     config.audioBitrate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spAudioBitrate));
-    config.videoCodec = gtk_entry_get_text(GTK_ENTRY(this->enVideoCodec));
+    // Resolved here rather than left as "auto", so that the preview below and the encoder line
+    // above both name the encoder a recording would actually run. The answer is cached, so
+    // rebuilding the preview on every keystroke does not re-probe.
+    config.videoCodec = VideoRecorder::resolveVideoCodec(
+            config.ffmpeg, gtk_entry_get_text(GTK_ENTRY(this->enVideoCodec)), config.videoQuality);
     config.audioCodec = gtk_entry_get_text(GTK_ENTRY(this->enAudioCodec));
     config.extraArguments = gtk_entry_get_text(GTK_ENTRY(this->enExtraArguments));
     config.withAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbWithAudio));
@@ -483,6 +566,44 @@ auto RecordingSettingsPanel::readConfig() const -> VideoRecorderConfig {
     return config;
 }
 
+/**
+ * Move the advanced numbers to what @p presetId means.
+ *
+ * "custom" is the one id that means nothing on its own: it is what the combo shows when the
+ * numbers do not match any preset, and choosing it should leave them exactly where they are
+ * rather than snapping them to whichever preset happens to be listed first.
+ */
+void RecordingSettingsPanel::applyQualityPreset(const char* presetId) {
+    if (presetId == nullptr || this->updatingPreset) {
+        return;
+    }
+
+    for (const auto& preset: QUALITY_PRESETS) {
+        if (std::string(presetId) != preset.id) {
+            continue;
+        }
+        this->updatingPreset = true;
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spVideoQuality), preset.quality);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spKeyframeInterval), preset.keyframeInterval);
+        this->updatingPreset = false;
+        break;
+    }
+    updatePreview();
+}
+
+/// Point the combo at whichever preset the advanced numbers currently spell out.
+void RecordingSettingsPanel::syncQualityPreset() {
+    if (this->updatingPreset) {
+        return;
+    }
+    const int quality = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spVideoQuality));
+    const int keyframes = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spKeyframeInterval));
+
+    this->updatingPreset = true;
+    gtk_combo_box_set_active_id(GTK_COMBO_BOX(this->cbQualityPreset), presetIdFor(quality, keyframes));
+    this->updatingPreset = false;
+}
+
 void RecordingSettingsPanel::updatePreview() {
     const fs::path ffmpeg =
             VideoRecorder::resolveFfmpeg(std::string(gtk_entry_get_text(GTK_ENTRY(this->enFfmpegPath))));
@@ -495,7 +616,24 @@ void RecordingSettingsPanel::updatePreview() {
         g_free(status);
     }
 
+    syncQualityPreset();
+
     const VideoRecorderConfig config = readConfig();
+
+    // Which encoder "auto" came out as, because it is the one thing on this page the user did not
+    // choose and would otherwise have to read off the command line below.
+    if (ffmpeg.empty()) {
+        gtk_label_set_text(GTK_LABEL(this->lbEncoderStatus), "");
+    } else {
+        const bool hardware = config.videoCodec.find("videotoolbox") != std::string::npos ||
+                              config.videoCodec.find("nvenc") != std::string::npos;
+        gchar* status = g_markup_printf_escaped(
+                hardware ? _("<i>Encoding with %s, on the graphics hardware.</i>") :
+                           _("<i>Encoding with %s, on the processor -- no hardware encoder answered here.</i>"),
+                config.videoCodec.c_str());
+        gtk_label_set_markup(GTK_LABEL(this->lbEncoderStatus), status);
+        g_free(status);
+    }
 
     // Say which model RNNoise found, because it is the one setting on this page that can silently
     // turn into something else: with no model file there is no network to run, and the chain drops
@@ -548,6 +686,9 @@ void RecordingSettingsPanel::load(const Settings& settings) {
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spHeight), settings.getVideoRecordingHeight());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spFps), settings.getVideoRecordingFps());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spVideoBitrate), settings.getVideoRecordingVideoBitrate());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spVideoQuality), settings.getVideoRecordingQuality());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spKeyframeInterval),
+                              settings.getVideoRecordingKeyframeInterval());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spAudioBitrate), settings.getVideoRecordingAudioBitrate());
 
     gtk_entry_set_text(GTK_ENTRY(this->enVideoCodec), settings.getVideoRecordingVideoCodec().c_str());
@@ -612,6 +753,8 @@ void RecordingSettingsPanel::save(Settings& settings) {
     settings.setVideoRecordingSize(config.width, config.height);
     settings.setVideoRecordingFps(config.fps);
     settings.setVideoRecordingVideoBitrate(config.videoBitrate);
+    settings.setVideoRecordingQuality(config.videoQuality);
+    settings.setVideoRecordingKeyframeInterval(config.keyframeInterval);
     settings.setVideoRecordingAudioBitrate(config.audioBitrate);
     settings.setVideoRecordingVideoCodec(config.videoCodec);
     settings.setVideoRecordingAudioCodec(config.audioCodec);

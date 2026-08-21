@@ -58,6 +58,16 @@ private:
     GtkWidget* spWidth = nullptr;
     GtkWidget* spHeight = nullptr;
     GtkWidget* spFps = nullptr;
+    void applyQualityPreset(const char* presetId);
+    void syncQualityPreset();
+
+    /// Set while one of the two is being moved to match the other, so they do not chase each other.
+    bool updatingPreset = false;
+
+    GtkWidget* cbQualityPreset = nullptr;
+    GtkWidget* lbEncoderStatus = nullptr;
+    GtkWidget* spVideoQuality = nullptr;
+    GtkWidget* spKeyframeInterval = nullptr;
     GtkWidget* spVideoBitrate = nullptr;
     GtkWidget* spAudioBitrate = nullptr;
     GtkWidget* enVideoCodec = nullptr;
