@@ -500,14 +500,20 @@ void MainWindow::updateScrollbarSidebarPosition() {
         gtk_widget_set_visible(gtk_scrolled_window_get_hscrollbar(scrolledWindow), !(type & SCROLLBAR_HIDE_HORIZONTAL));
         gtk_widget_set_visible(gtk_scrolled_window_get_vscrollbar(scrolledWindow), !(type & SCROLLBAR_HIDE_VERTICAL));
 
-
         // Hiding the scrollbar widgets is not enough on its own to silence the overlay indicator:
         // it is separate machinery, faded in from the scrolled window's own event handler on every
-        // pointer motion whether or not the bars themselves are visible. Turning overlay scrolling
-        // off is what removes the indicator entirely.
-        const bool overlayWanted =
-                !control->getSettings()->isScrollbarFadeoutDisabled() && type != SCROLLBAR_HIDE_BOTH;
-        gtk_scrolled_window_set_overlay_scrolling(scrolledWindow, overlayWanted);
+        // pointer motion whether or not the bars themselves are visible. EXTERNAL is the policy
+        // built for this: no scrollbar and no indicator on that axis, per axis, while the child
+        // stays clipped to the viewport and the adjustments keep working. NEVER also silences the
+        // indicator, but a scrolled window with policy NEVER stops clipping and hands the canvas
+        // its full natural height, which broke the presentation zoom. Turning overlay scrolling
+        // off also silences it, but for both axes at once and only by overriding the fadeout
+        // preference for everyone.
+        gtk_scrolled_window_set_policy(scrolledWindow,
+                                       (type & SCROLLBAR_HIDE_HORIZONTAL) ? GTK_POLICY_EXTERNAL : GTK_POLICY_AUTOMATIC,
+                                       (type & SCROLLBAR_HIDE_VERTICAL) ? GTK_POLICY_EXTERNAL : GTK_POLICY_AUTOMATIC);
+        gtk_scrolled_window_set_overlay_scrolling(scrolledWindow,
+                                                  !control->getSettings()->isScrollbarFadeoutDisabled());
     }
 
     // Part 2: update sidebar position
