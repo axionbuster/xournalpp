@@ -18,7 +18,7 @@
 # somewhere and brought back), macOS refuses it with "is damaged and can't be
 # opened". That message means quarantine, NOT corruption. Clear it with:
 #
-#     xattr -dr com.apple.quarantine /Applications/Xournal++.app
+#     xattr -dr com.apple.quarantine ~/Applications/Xournal++.app
 #
 # Build speed: the project's own CMakeLists precompile GTK's headers, which is
 # most of what a file costs to compile. The other half is ccache, which is not
@@ -184,4 +184,4 @@ codesign --verify --strict "$APP" && echo "    signature ok"
 echo
 echo "built: $APP  (version $VERSION)"
 echo "install with:"
-echo "  rm -rf '/Applications/Xournal++.app' && cp -R '$APP' /Applications/"
+echo "  rm -rf ~/Applications/Xournal++.app && cp -R '$APP' ~/Applications/"
