@@ -161,6 +161,28 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
                                       "is a second file beside every recording, for a feature you may not be using."));
         gtk_box_pack_start(GTK_BOX(content), this->cbKeepAudioFile, FALSE, TRUE, 0);
 
+        this->cbShowPointer = gtk_check_button_new_with_label(_("Show where the pen is pointing"));
+        gtk_widget_set_tooltip_text(
+                this->cbShowPointer,
+                _("The picture is drawn from the document, so the cursor on your desktop is not in it: without this, "
+                  "a viewer sees ink appear with no idea where the pen was in between, and pointing at something "
+                  "already written shows nothing at all. Drawn as a ring in the current pen's color, so it does not "
+                  "cover what it is pointing at. The projector window shows it too."));
+        gtk_box_pack_start(GTK_BOX(content), this->cbShowPointer, FALSE, TRUE, 0);
+
+        this->spPointerSize = makeSpin(4, 400, 2);
+        gtk_widget_set_tooltip_text(this->spPointerSize,
+                                    _("Measured on the finished video, so a ring 24 px across stays 24 px across "
+                                      "whatever resolution is recorded and whatever size the projector window is."));
+        this->boxPointerSize = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_widget_set_margin_start(this->boxPointerSize, 22);
+        gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("Size:")), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(this->boxPointerSize), this->spPointerSize, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("px of the recorded frame")), FALSE, FALSE,
+                           0);
+        gtk_box_pack_start(GTK_BOX(content), this->boxPointerSize, FALSE, TRUE, 0);
+        bindSensitivity(this->cbShowPointer, this->boxPointerSize);
+
         GtkWidget* grid = makeGrid();
         int row = 0;
 
@@ -497,6 +519,9 @@ void RecordingSettingsPanel::load(const Settings& settings) {
 
     gtk_entry_set_text(GTK_ENTRY(this->enFfmpegPath), settings.getVideoRecordingFfmpegPath().c_str());
 
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(this->cbShowPointer), settings.isVideoRecordingShowPointer());
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spPointerSize), settings.getVideoRecordingPointerSize());
+
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spWidth), settings.getVideoRecordingWidth());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spHeight), settings.getVideoRecordingHeight());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(this->spFps), settings.getVideoRecordingFps());
@@ -548,6 +573,8 @@ void RecordingSettingsPanel::save(Settings& settings) {
     settings.setVideoRecordingEnabled(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbEnabled)));
     settings.setVideoRecordingWithAudio(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbWithAudio)));
     settings.setVideoRecordingKeepAudioFile(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbKeepAudioFile)));
+    settings.setVideoRecordingShowPointer(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbShowPointer)));
+    settings.setVideoRecordingPointerSize(gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spPointerSize)));
 
     if (gchar* folder = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(this->fcVideoFolder)); folder != nullptr) {
         settings.setVideoFolder(Util::fromGFilename(folder));

@@ -251,6 +251,8 @@ void Settings::loadDefault() {
     this->videoRecordingAudioCodec = "aac";
     this->videoRecordingContainer = "mov";
     this->videoRecordingExtraArguments = "";
+    this->videoRecordingShowPointer = true;
+    this->videoRecordingPointerSize = 24;
 
     // Microphone processing defaults, in the same order the chain runs. A bare microphone into a
     // recording sounds like a bare microphone; these are the three things a streaming setup always
@@ -814,6 +816,11 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->videoRecordingContainer = reinterpret_cast<const char*>(value);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingExtraArguments")) == 0) {
         this->videoRecordingExtraArguments = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingShowPointer")) == 0) {
+        this->videoRecordingShowPointer = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingPointerSize")) == 0) {
+        this->videoRecordingPointerSize =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
 
         // Microphone processing
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorEnabled")) == 0) {
@@ -1416,6 +1423,10 @@ void Settings::save() {
     SAVE_STRING_PROP(videoRecordingContainer);
     SAVE_STRING_PROP(videoRecordingExtraArguments);
     ATTACH_COMMENT("Extra ffmpeg arguments, appended last so they override everything else.");
+    SAVE_BOOL_PROP(videoRecordingShowPointer);
+    ATTACH_COMMENT("Draw a marker at the pen's position into the recorded picture.");
+    SAVE_INT_PROP(videoRecordingPointerSize);
+    ATTACH_COMMENT("Diameter of that marker, in pixels of the recorded frame.");
 
     SAVE_BOOL_PROP(micCompressorEnabled);
     SAVE_DOUBLE_PROP(micCompressorThreshold);
@@ -2814,6 +2825,26 @@ void Settings::setVideoRecordingExtraArguments(string value) {
         return;
     }
     this->videoRecordingExtraArguments = std::move(value);
+    save();
+}
+
+auto Settings::isVideoRecordingShowPointer() const -> bool { return this->videoRecordingShowPointer; }
+
+void Settings::setVideoRecordingShowPointer(bool show) {
+    if (this->videoRecordingShowPointer == show) {
+        return;
+    }
+    this->videoRecordingShowPointer = show;
+    save();
+}
+
+auto Settings::getVideoRecordingPointerSize() const -> int { return this->videoRecordingPointerSize; }
+
+void Settings::setVideoRecordingPointerSize(int pixels) {
+    if (this->videoRecordingPointerSize == pixels) {
+        return;
+    }
+    this->videoRecordingPointerSize = pixels;
     save();
 }
 

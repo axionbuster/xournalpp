@@ -47,6 +47,9 @@ private:
     GtkWidget* cbEnabled = nullptr;
     GtkWidget* cbWithAudio = nullptr;
     GtkWidget* cbKeepAudioFile = nullptr;
+    GtkWidget* cbShowPointer = nullptr;
+    GtkWidget* boxPointerSize = nullptr;
+    GtkWidget* spPointerSize = nullptr;
     GtkWidget* fcVideoFolder = nullptr;
     GtkWidget* enFfmpegPath = nullptr;
     GtkWidget* lbFfmpegStatus = nullptr;

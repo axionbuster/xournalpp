@@ -178,6 +178,19 @@ auto InputContext::handle(GdkEvent* sourceEvent) -> bool {
     // Deactivate touchscreen when a pen event occurs
     this->handRecognition->event(event.deviceClass);
 
+    // Remember where the pointer is, for the recorder and the projector: they draw the page from
+    // the document and so cannot see the cursor GTK is drawing on the desktop. Touch is left out
+    // on purpose -- a finger scrolling the page is not pointing at anything.
+    if (this->view != nullptr &&
+        (event.deviceClass == INPUT_DEVICE_PEN || event.deviceClass == INPUT_DEVICE_ERASER ||
+         event.deviceClass == INPUT_DEVICE_MOUSE)) {
+        if (event.type == LEAVE_EVENT || event.type == PROXIMITY_OUT_EVENT) {
+            this->view->forgetPointerPosition();
+        } else if (event.type != GRAB_BROKEN_EVENT) {
+            this->view->notePointerPosition(event.absolute);
+        }
+    }
+
     // separate events to appropriate handlers
     // handle geometry tool
     if (geometryToolInputHandler && geometryToolInputHandler->handle(event)) {

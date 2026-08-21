@@ -14,6 +14,7 @@
 #include <cstddef>  // for size_t
 #include <limits>   // for numeric_limits
 #include <memory>   // for unique_ptr
+#include <optional>  // for optional
 #include <string>   // for string
 #include <utility>  // for pair
 #include <vector>   // for vector
@@ -27,6 +28,7 @@
 #include "model/DocumentChangeType.h"      // for DocumentChangeType
 #include "model/DocumentListener.h"        // for DocumentListener
 #include "pdf/base/XojPdfPage.h"           // for XojPdfRectangle
+#include "util/Point.h"                    // for Point
 #include "util/Util.h"                     // for npos
 
 class Control;
@@ -160,6 +162,28 @@ public:
 
     void onSettingsChanged();
 
+    // -----------------------------------------------------------------------------------------
+    // Where the pen is
+    //
+    // The recorder and the projector draw the page from the document, so neither of them can see
+    // the pointer GTK is drawing on the desktop. They ask here instead. Fed from InputContext,
+    // which every pen, eraser and mouse event passes through on its way to a handler.
+    // -----------------------------------------------------------------------------------------
+
+    /// A pen, eraser or mouse was seen at this widget position. Touch does not count as pointing.
+    void notePointerPosition(const xoj::util::Point<double>& widgetPosition);
+
+    /// The pointer left the canvas, or the stylus was lifted out of range.
+    void forgetPointerPosition();
+
+    /**
+     * The last such position, in Layout pixel coordinates, or nothing if the pointer is away.
+     *
+     * Recomputed from the scroll position of the moment rather than remembered, so that scrolling
+     * under a pen that has not moved reports the new place on the page it now sits over.
+     */
+    std::optional<xoj::util::Point<double>> getPointerPositionInLayout() const;
+
 private:
     void fireZoomChanged();
 
@@ -195,6 +219,9 @@ private:
      * Memory cleanup timeout
      */
     guint cleanupTimeout = std::numeric_limits<guint>::max();
+
+    /// Last pen/mouse position in widget coordinates; unset while the pointer is off the canvas.
+    std::optional<xoj::util::Point<double>> pointerPosition;
 
     friend class Layout;
 };

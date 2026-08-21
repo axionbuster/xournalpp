@@ -359,6 +359,26 @@ void XournalView::onSettingsChanged() {
     }
 }
 
+void XournalView::notePointerPosition(const xoj::util::Point<double>& widgetPosition) {
+    this->pointerPosition = widgetPosition;
+}
+
+void XournalView::forgetPointerPosition() { this->pointerPosition.reset(); }
+
+auto XournalView::getPointerPositionInLayout() const -> std::optional<xoj::util::Point<double>> {
+    if (!this->pointerPosition) {
+        return std::nullopt;
+    }
+    Layout* layout = this->getLayout();
+    if (layout == nullptr) {
+        return std::nullopt;
+    }
+    // The same sum InputContext makes when it turns a widget position into a Layout one: widget
+    // coordinates start at whatever the scrollbars are showing.
+    const auto visible = layout->getVisibleRect();
+    return xoj::util::Point<double>{this->pointerPosition->x + visible.x, this->pointerPosition->y + visible.y};
+}
+
 // send the focus back to the appropriate widget
 void XournalView::requestFocus() { gtk_widget_grab_focus(this->widget); }
 

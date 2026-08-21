@@ -1,13 +1,16 @@
 #include "CanvasFrame.h"
 
 #include <algorithm>     // for max, min
-#include <cmath>         // for floor
+#include <cmath>         // for floor, M_PI
 #include <shared_mutex>  // for shared_lock
 #include <utility>       // for move
 
 #include "control/Control.h"              // for Control
+#include "control/ToolEnums.h"            // for TOOL_ERASER
+#include "control/ToolHandler.h"          // for ToolHandler
 #include "control/jobs/Job.h"             // for Job, JOB_TYPE_RENDER
 #include "control/jobs/XournalScheduler.h"  // for XournalScheduler
+#include "control/settings/Settings.h"    // for Settings
 #include "gui/MainWindow.h"               // for MainWindow
 #include "gui/PageView.h"                 // for XojPageView
 #include "gui/XournalView.h"              // for XournalView
@@ -48,6 +51,91 @@ void renderPageContent(Control* control, const PageRef& page, cairo_t* cr) {
         documentView.setPdfCache(xournal->getCache());
     }
     documentView.drawPage(page, cr, false);
+}
+
+/**
+ * Draw a marker where the pen is, in page coordinates, and say whether anything was drawn.
+ *
+ * The caller's context is already scaled to the page and clipped to it, so everything here is in
+ * document units and the marker comes out the same size whatever resolution the frame is.
+ *
+ * A ring rather than a dot: it has to be findable against a page that may be covered in ink of the
+ * same color, and a ring says where the tip is without hiding what is under it. The small dot at
+ * the center is the tip itself, at the width the pen would actually draw.
+ */
+bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double pageWidth, double pageHeight) {
+    Settings* settings = control->getSettings();
+    if (!settings->isVideoRecordingShowPointer()) {
+        return false;
+    }
+
+    MainWindow* win = control->getWindow();
+    XournalView* xournal = win != nullptr ? win->getXournal() : nullptr;
+    if (xournal == nullptr) {
+        return false;
+    }
+
+    const auto position = xournal->getPointerPositionInLayout();
+    if (!position) {
+        return false;
+    }
+
+    // Which page the pointer is over is decided by the page it is over, not by the page being
+    // drawn: pointing at the next page down while this one is being recorded draws nothing here,
+    // which is right.
+    XojPageView* pageView = xournal->getViewFor(control->getCurrentPageNo());
+    if (pageView == nullptr || pageView->getPage() != page) {
+        return false;
+    }
+
+    const double zoom = xournal->getZoom();
+    if (zoom <= 0.0) {
+        return false;
+    }
+    const auto origin = pageView->getPixelPosition();
+    const double x = (position->x - origin.x) / zoom;
+    const double y = (position->y - origin.y) / zoom;
+    if (x < 0.0 || y < 0.0 || x > pageWidth || y > pageHeight) {
+        return false;
+    }
+
+    // The size is given in lines of the finished video, as the caption safe area is, and turned
+    // into a fraction of the page so that it means the same thing in a projector window of any
+    // size and in a recording of any resolution.
+    const int frameHeight = std::max(1, settings->getVideoRecordingHeight());
+    const double diameter = pageHeight * settings->getVideoRecordingPointerSize() / frameHeight;
+    if (diameter <= 0.0) {
+        return false;
+    }
+    const double radius = diameter / 2.0;
+
+    ToolHandler* tools = control->getToolHandler();
+    // The eraser has no color of its own -- getColor() still answers with the pen's -- so it gets a
+    // neutral one rather than a ring in a color it is not about to draw with.
+    const Color color = tools->getToolType() == TOOL_ERASER ? Color(0xFF808080U) : tools->getColor();
+
+    cairo_save(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+    // A dark outline under the ring, so that a light pen stays visible over a light page. Drawn
+    // first and slightly wider, which is what makes it read as an edge rather than a second ring.
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.35);
+    cairo_set_line_width(cr, radius * 0.34);
+    cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+    cairo_stroke(cr);
+
+    Util::cairo_set_source_rgbi(cr, color, 0.85);
+    cairo_set_line_width(cr, radius * 0.22);
+    cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+    cairo_stroke(cr);
+
+    const double tip = std::clamp(tools->getThickness() / 2.0, radius * 0.12, radius * 0.45);
+    Util::cairo_set_source_rgbi(cr, color, 0.9);
+    cairo_arc(cr, x, y, tip, 0.0, 2.0 * M_PI);
+    cairo_fill(cr);
+
+    cairo_restore(cr);
+    return true;
 }
 
 }  // namespace
@@ -280,6 +368,12 @@ auto drawCurrentPage(Control* control, cairo_t* cr, double width, double height,
     if (XojPageView* pageView = xournal != nullptr ? xournal->getViewFor(pageNo) : nullptr;
         pageView != nullptr && pageView->getPage() == page) {
         layout.overlaysDrawn = pageView->drawOverlays(cr) > 0;
+    }
+
+    // The pointer moves between frames like the ink under the pen does, so a frame carrying one is
+    // never identical to the last and must not be skipped as a duplicate.
+    if (drawPointer(control, cr, page, pageWidth, pageHeight)) {
+        layout.overlaysDrawn = true;
     }
 
     cairo_restore(cr);

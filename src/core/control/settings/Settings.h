@@ -557,6 +557,31 @@ public:
     std::string const& getVideoRecordingExtraArguments() const;
     void setVideoRecordingExtraArguments(std::string arguments);
 
+    /**
+     * Draw a marker at the pen's position into the recorded picture.
+     *
+     * The frame is rendered from the document, so nothing that lives on the desktop -- the system
+     * pointer, the pen cursor Xournal++ hands to GTK -- can appear in it. Without this, a viewer
+     * sees ink arrive with no idea where the pen was in between, and pointing at something already
+     * written is invisible. On by default: a recording of a lecture is the case this feature is
+     * for, and a lecture is half pointing.
+     *
+     * Drawn wherever the shared canvas frame is drawn, which means the projector window shows it
+     * too -- the projector is how you check what is being recorded, so it has to.
+     */
+    bool isVideoRecordingShowPointer() const;
+    void setVideoRecordingShowPointer(bool show);
+
+    /**
+     * Diameter of that marker, in pixels of the recorded frame.
+     *
+     * Given in output pixels rather than document units for the same reason the caption safe area
+     * is: what matters is whether it reads on the finished video. Held to a fraction of the page
+     * so it means the same thing in a projector window of any size.
+     */
+    int getVideoRecordingPointerSize() const;
+    void setVideoRecordingPointerSize(int pixels);
+
     // ---------------------------------------------------------------------------------------
     // Microphone processing
     //
@@ -1369,6 +1394,8 @@ private:
     std::string videoRecordingAudioCodec;
     std::string videoRecordingContainer;
     std::string videoRecordingExtraArguments;
+    bool videoRecordingShowPointer{};
+    int videoRecordingPointerSize{};
 
     /**
      * Microphone processing. Units are OBS's: dB for levels and gains, milliseconds for times,
