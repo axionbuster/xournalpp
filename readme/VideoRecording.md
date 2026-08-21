@@ -181,11 +181,16 @@ mode; what it turned out to do instead is blink. GTK fades its overlay scrollbar
 indicator flickered in and out over the page the whole time the pen was down.
 
 Hiding the scrollbar widgets is not enough on its own, because the indicator is separate machinery
-that runs whether or not the bars are visible. What silences it is turning **overlay scrolling**
-off. Setting the scrollbar *policy* to NEVER also silences it and must not be used: a
-`GtkScrolledWindow` with policy NEVER stops clipping and hands its child the child's full natural
-height, which here meant a 2780-pixel canvas inside a 948-pixel window -- the page pinned to the
-top, the rest of the window empty, and nothing scrollable. Outside presentation mode the
+that runs whether or not the bars are visible. What silences it is scrollbar policy **EXTERNAL**,
+the policy for a scrollbar someone else owns: no bar and no indicator on that axis, while the
+canvas stays clipped to the viewport and the adjustments keep working. Two policies that also
+silence it must not be used. NEVER stops clipping and hands the child its full natural height --
+here a 2780-pixel canvas inside a 948-pixel window, the page pinned to the top and nothing
+scrollable. Turning **overlay scrolling** off keeps the geometry but once hid a real bug: page
+visibility is recomputed from the scroll adjustments, and until `Layout::adjustmentReconfigured`
+it was recomputed only when the scroll *value* changed -- which presentation mode never changes --
+so the visibility computed against the zero-sized viewport of early startup stuck, the live
+stroke's mask came out empty, and ink appeared only on pen lift. Outside presentation mode the
 scrollbars behave exactly as configured in the preferences.
 
 Both pipes are handed to ffmpeg by GLib's own descriptor mapping, not by a child-setup function
