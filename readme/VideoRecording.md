@@ -28,11 +28,11 @@ the file. Left at that, a viewer sees ink appear with no idea where the pen was 
 and pointing at something already written -- half of what happens in a lecture -- shows nothing at
 all.
 
-So the frame draws its own marker at the pen: a ring in the current pen's color, with a darker edge
-beneath it so a light pen stays visible over a light page, and a dot at the center at the width the
-pen would actually draw. A ring rather than a filled disc, because it has to be findable over a
-page already covered in ink of that same color without hiding the thing it is pointing at. The
-eraser gets a neutral gray, having no color of its own.
+So the frame draws its own marker at the pen: a translucent dot in the current pen's color, with a
+thin dark edge so it has a boundary against a white page, and a small solid dot at its center at
+the width the pen would actually draw. A dot because that is what every screen recorder uses, and
+translucent because that is what lets it sit on top of the writing it is pointing at without hiding
+it. The eraser gets a neutral gray, having no color of its own.
 
 It is on by default and turned off under **Preferences > Recording**. Its size is given in pixels
 of the finished video, the same way the caption safe area is: a recording at the configured height

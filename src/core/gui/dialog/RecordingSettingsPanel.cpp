@@ -166,8 +166,8 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
                 this->cbShowPointer,
                 _("The picture is drawn from the document, so the cursor on your desktop is not in it: without this, "
                   "a viewer sees ink appear with no idea where the pen was in between, and pointing at something "
-                  "already written shows nothing at all. Drawn as a ring in the current pen's color, so it does not "
-                  "cover what it is pointing at. The projector window shows it too."));
+                  "already written shows nothing at all. Drawn as a translucent dot in the current pen's color, so "
+                  "the writing underneath still shows through it. The projector window shows it too."));
         gtk_box_pack_start(GTK_BOX(content), this->cbShowPointer, FALSE, TRUE, 0);
 
         this->spPointerSize = makeSpin(4, 400, 2);

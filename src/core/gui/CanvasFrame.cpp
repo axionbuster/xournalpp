@@ -59,9 +59,9 @@ void renderPageContent(Control* control, const PageRef& page, cairo_t* cr) {
  * The caller's context is already scaled to the page and clipped to it, so everything here is in
  * document units and the marker comes out the same size whatever resolution the frame is.
  *
- * A ring rather than a dot: it has to be findable against a page that may be covered in ink of the
- * same color, and a ring says where the tip is without hiding what is under it. The small dot at
- * the center is the tip itself, at the width the pen would actually draw.
+ * A translucent dot, the way every screen recorder marks a pointer, with a small solid one at its
+ * center at the width the pen would actually draw. Translucency is what lets it sit on top of the
+ * writing it is pointing at without hiding it.
  */
 bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double pageWidth, double pageHeight,
                  double areaHeight, double scale) {
@@ -120,20 +120,23 @@ bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double page
     cairo_save(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
-    // A dark outline under the ring, so that a light pen stays visible over a light page. Drawn
-    // first and slightly wider, which is what makes it read as an edge rather than a second ring.
-    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.35);
-    cairo_set_line_width(cr, radius * 0.34);
+    // The body of the dot. Translucent, which is the whole reason a dot can be used at all here:
+    // every screen recorder marks the pointer with one, and they get away with covering the thing
+    // being pointed at because what is underneath still shows through.
+    Util::cairo_set_source_rgbi(cr, color, 0.35);
+    cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
+    cairo_fill(cr);
+
+    // A thin dark edge, so the dot has a boundary against a white page instead of fading into it.
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.30);
+    cairo_set_line_width(cr, std::max(radius * 0.09, 0.4));
     cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
     cairo_stroke(cr);
 
-    Util::cairo_set_source_rgbi(cr, color, 0.85);
-    cairo_set_line_width(cr, radius * 0.22);
-    cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-    cairo_stroke(cr);
-
-    const double tip = std::clamp(tools->getThickness() / 2.0, radius * 0.12, radius * 0.45);
-    Util::cairo_set_source_rgbi(cr, color, 0.9);
+    // The tip itself, solid and at the width the pen would draw, so the dot says exactly where the
+    // ink would land and not merely the neighborhood.
+    const double tip = std::clamp(tools->getThickness() / 2.0, radius * 0.12, radius * 0.4);
+    Util::cairo_set_source_rgbi(cr, color, 0.95);
     cairo_arc(cr, x, y, tip, 0.0, 2.0 * M_PI);
     cairo_fill(cr);
 

@@ -566,8 +566,9 @@ public:
      * written is invisible. On by default: a recording of a lecture is the case this feature is
      * for, and a lecture is half pointing.
      *
-     * Drawn wherever the shared canvas frame is drawn, which means the projector window shows it
-     * too -- the projector is how you check what is being recorded, so it has to.
+     * Drawn as a translucent dot, the way a screen recorder marks a pointer, wherever the shared
+     * canvas frame is drawn -- which means the projector window shows it too, the projector being
+     * how you check what is being recorded.
      */
     bool isVideoRecordingShowPointer() const;
     void setVideoRecordingShowPointer(bool show);
