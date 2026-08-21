@@ -47,6 +47,12 @@ Layout::Layout(XournalView* view, ScrollHandling* scrollHandling): view(view), s
                      xoj::util::wrap_for_g_callback_v<horizontalScrollChanged>, this);
     g_signal_connect(scrollHandling->getVertical(), "value-changed",
                      xoj::util::wrap_for_g_callback_v<verticalScrollChanged>, this);
+    // "changed", not only "value-changed": the scrolled window writes the page size on every
+    // allocation, and that emits only "changed". See adjustmentReconfigured.
+    g_signal_connect(scrollHandling->getHorizontal(), "changed",
+                     xoj::util::wrap_for_g_callback_v<adjustmentReconfigured>, this);
+    g_signal_connect(scrollHandling->getVertical(), "changed",
+                     xoj::util::wrap_for_g_callback_v<adjustmentReconfigured>, this);
 }
 
 static inline void afterMove(Layout* layout, GtkWidget* w) {
@@ -55,6 +61,16 @@ static inline void afterMove(Layout* layout, GtkWidget* w) {
 }
 
 void Layout::horizontalScrollChanged(GtkAdjustment*, Layout* layout) {
+    if (layout->delayUpdate == DelayStatus::NO_DELAY) {
+        afterMove(layout, layout->view->getWidget());
+    } else {
+        layout->delayUpdate = DelayStatus::MUST_RUN_AFTER;
+    }
+}
+
+void Layout::adjustmentReconfigured(GtkAdjustment*, Layout* layout) {
+    // No maybeAddLastPage here: reaching the end of the last page by resizing the window is not
+    // the reader's "scrolled to the end", and must not append a page the way a real scroll does.
     if (layout->delayUpdate == DelayStatus::NO_DELAY) {
         afterMove(layout, layout->view->getWidget());
     } else {
