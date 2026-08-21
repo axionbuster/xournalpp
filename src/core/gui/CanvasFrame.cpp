@@ -63,7 +63,8 @@ void renderPageContent(Control* control, const PageRef& page, cairo_t* cr) {
  * same color, and a ring says where the tip is without hiding what is under it. The small dot at
  * the center is the tip itself, at the width the pen would actually draw.
  */
-bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double pageWidth, double pageHeight) {
+bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double pageWidth, double pageHeight,
+                 double areaHeight, double scale) {
     Settings* settings = control->getSettings();
     if (!settings->isVideoRecordingShowPointer()) {
         return false;
@@ -99,11 +100,13 @@ bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double page
         return false;
     }
 
-    // The size is given in lines of the finished video, as the caption safe area is, and turned
-    // into a fraction of the page so that it means the same thing in a projector window of any
-    // size and in a recording of any resolution.
+    // The size is given in lines of the finished video, as the caption safe area is, because what
+    // decides it is whether the marker reads on the finished picture. Scaled by how tall this
+    // frame is against how tall a recorded one would be, then divided back out of the page scale,
+    // so a recording at the configured height draws it at exactly the number asked for and a
+    // projector window of any size draws it proportionally.
     const int frameHeight = std::max(1, settings->getVideoRecordingHeight());
-    const double diameter = pageHeight * settings->getVideoRecordingPointerSize() / frameHeight;
+    const double diameter = settings->getVideoRecordingPointerSize() * (areaHeight / frameHeight) / scale;
     if (diameter <= 0.0) {
         return false;
     }
@@ -372,7 +375,7 @@ auto drawCurrentPage(Control* control, cairo_t* cr, double width, double height,
 
     // The pointer moves between frames like the ink under the pen does, so a frame carrying one is
     // never identical to the last and must not be skipped as a duplicate.
-    if (drawPointer(control, cr, page, pageWidth, pageHeight)) {
+    if (drawPointer(control, cr, page, pageWidth, pageHeight, height, scale)) {
         layout.overlaysDrawn = true;
     }
 

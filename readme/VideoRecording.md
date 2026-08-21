@@ -35,9 +35,9 @@ page already covered in ink of that same color without hiding the thing it is po
 eraser gets a neutral gray, having no color of its own.
 
 It is on by default and turned off under **Preferences > Recording**. Its size is given in pixels
-of the finished video, the same way the caption safe area is, and converted to a fraction of the
-page -- so 24 px means 24 px whatever resolution is recorded and whatever size the projector window
-happens to be.
+of the finished video, the same way the caption safe area is: a recording at the configured height
+draws it at exactly the number asked for, and a projector window of any size draws it
+proportionally, so 24 px looks the same in both.
 
 Where the pen is comes from `InputContext`, which every pen, eraser and mouse event passes through
 on its way to a handler. Three details are worth knowing:
