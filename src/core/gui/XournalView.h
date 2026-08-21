@@ -185,6 +185,9 @@ public:
     std::optional<xoj::util::Point<double>> getPointerPositionInLayout() const;
 
 private:
+    /// Let the projector know the marker it draws has moved.
+    void pointerMoved();
+
     void fireZoomChanged();
 
     std::pair<size_t, size_t> preloadPageBounds(size_t page, size_t maxPage);

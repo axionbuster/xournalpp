@@ -557,6 +557,12 @@ auto ProjectorWindow::onRedrawTick(gpointer data) -> gboolean {
 // 5. Change notifications
 // ===========================================================================================
 
+void ProjectorWindow::notifyPointerMoved() {
+    if (this->visible && this->control->getSettings()->isVideoRecordingShowPointer()) {
+        queueRedraw();
+    }
+}
+
 void ProjectorWindow::notifyRepaint(const PageRef& page) {
     if (!this->visible) {
         return;

@@ -63,6 +63,16 @@ public:
     void notifyRepaint(const PageRef& page);
 
     /**
+     * The pen moved, so the marker the frame draws at it has to move too.
+     *
+     * The clock below repaints a page nobody is touching four times a second, which is enough for
+     * a background change nobody reported and far too slow for something following a hand. Called
+     * once per motion event and does nothing but set a flag; the clock still decides when the
+     * repaint happens, so the rate stays capped whatever the tablet's report rate is.
+     */
+    void notifyPointerMoved();
+
+    /**
      * A finished stroke was just drawn into the main view's buffer; draw it into the kept page
      * picture too, so it never flickers out of the projector. See FrameCache::drawSettled.
      */

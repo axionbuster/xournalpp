@@ -20,6 +20,43 @@ decision settles most of the questions people ask about this feature:
 The page is centred and letterboxed on the projector's background colour, so the projector window
 is an exact preview of the recording -- apart from the caption guide, which is drawn only there.
 
+## Where the pen is pointing
+
+Drawing the frame from the document has one cost: the cursor is on the desktop, and the desktop is
+not in the picture. Neither the system pointer nor the pen cursor Xournal++ hands to GTK can reach
+the file. Left at that, a viewer sees ink appear with no idea where the pen was between strokes,
+and pointing at something already written -- half of what happens in a lecture -- shows nothing at
+all.
+
+So the frame draws its own marker at the pen: a ring in the current pen's color, with a darker edge
+beneath it so a light pen stays visible over a light page, and a dot at the center at the width the
+pen would actually draw. A ring rather than a filled disc, because it has to be findable over a
+page already covered in ink of that same color without hiding the thing it is pointing at. The
+eraser gets a neutral gray, having no color of its own.
+
+It is on by default and turned off under **Preferences > Recording**. Its size is given in pixels
+of the finished video, the same way the caption safe area is, and converted to a fraction of the
+page -- so 24 px means 24 px whatever resolution is recorded and whatever size the projector window
+happens to be.
+
+Where the pen is comes from `InputContext`, which every pen, eraser and mouse event passes through
+on its way to a handler. Three details are worth knowing:
+
+- **Touch does not count as pointing.** A finger scrolling the page is not indicating anything, and
+  a marker that jumped to every scroll gesture would be noise.
+- **The position is kept in widget coordinates**, not page ones, and converted against the scroll
+  position of the moment. Scrolling under a pen that has not moved therefore reports the new part
+  of the page it now sits over, which is what actually happened.
+- **It is forgotten on leave and on the stylus leaving range.** A marker frozen where the pen was
+  ten minutes ago is worse than no marker, and reaching for a coffee should not leave one behind.
+
+Unlike the caption guide, this is drawn into the recording -- and, being part of the shared frame,
+into the projector as well. That is deliberate: the projector is how you check what is being
+recorded, so it has to show what the recording shows. It does mean the projector has to repaint
+faster than a page nobody is touching needs. `XournalView` tells it the pointer moved, once per
+motion event; the projector's own clock still decides when to repaint, so the rate stays capped
+however fast the tablet reports.
+
 ## How the two streams get into one file
 
 One ffmpeg process, two pipes.
@@ -281,7 +318,8 @@ they say during a recording:
 | `src/core/audio/PipedAudioSource.{h,cpp}` | the microphone, as raw samples on a pipe |
 | `src/core/gui/toolbarMenubar/RecordButton.{h,cpp}` | the red, counting record button |
 | `resources/rnnoise/sh.rnnn` | the RNNoise model, shipped in the bundle |
-| `src/core/gui/CanvasFrame.{h,cpp}` | the one function that draws "the page, alone", its frame cache and the frame rate meter |
+| `src/core/gui/CanvasFrame.{h,cpp}` | the one function that draws "the page, alone", the pen marker, the frame cache and the frame rate meter |
+| `src/core/gui/XournalView.{h,cpp}` | where the pen was last seen, fed from `InputContext` |
 | `src/core/gui/ProjectorWindow.{h,cpp}` | the projector window, the caption guide and the frame rate indicator |
 | `src/core/gui/dialog/RecordingSettingsPanel.{h,cpp}` | the preferences page |
 | `src/core/control/Control.cpp` | `startRecording` / `stopRecording`, projector lifetime |

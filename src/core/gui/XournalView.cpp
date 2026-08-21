@@ -23,6 +23,7 @@
 #include "control/zoom/ZoomControl.h"            // for ZoomControl
 #include "gui/MainWindow.h"                      // for MainWindow
 #include "gui/PdfFloatingToolbox.h"              // for PdfFloatingToolbox
+#include "gui/ProjectorWindow.h"                 // for ProjectorWindow
 #include "gui/inputdevices/GeometryToolInputHandler.h"  // for GeometryToolInputHandler
 #include "gui/inputdevices/HandRecognition.h"    // for HandRecognition
 #include "gui/inputdevices/InputContext.h"       // for InputContext
@@ -360,10 +361,31 @@ void XournalView::onSettingsChanged() {
 }
 
 void XournalView::notePointerPosition(const xoj::util::Point<double>& widgetPosition) {
+    if (this->pointerPosition && *this->pointerPosition == widgetPosition) {
+        return;
+    }
     this->pointerPosition = widgetPosition;
+    pointerMoved();
 }
 
-void XournalView::forgetPointerPosition() { this->pointerPosition.reset(); }
+void XournalView::forgetPointerPosition() {
+    if (!this->pointerPosition) {
+        return;
+    }
+    this->pointerPosition.reset();
+    pointerMoved();
+}
+
+void XournalView::pointerMoved() {
+    // The recorder needs no telling -- it draws every frame regardless -- but the projector
+    // repaints only when something changes, and a marker following a hand changes constantly.
+    // Reached through Control, as RepaintHandler does, so that nothing needs re-registering when
+    // this view is rebuilt, and peeked at rather than fetched, so that a user who has never opened
+    // the projector does not get one conjured by moving the mouse.
+    if (ProjectorWindow* projector = this->control->peekProjectorWindow(); projector != nullptr) {
+        projector->notifyPointerMoved();
+    }
+}
 
 auto XournalView::getPointerPositionInLayout() const -> std::optional<xoj::util::Point<double>> {
     if (!this->pointerPosition) {
