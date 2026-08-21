@@ -44,10 +44,12 @@ marker says exactly where the ink would land rather than merely the neighborhood
 already its own tip mark and gets none.
 
 It is on by default and turned off under **Preferences > Video Recording > Recording**, where the
-shape is chosen too. Its size is given in pixels
+shape is chosen too. Its diameter is given in pixels
 of the finished video, the same way the caption safe area is: a recording at the configured height
 draws it at exactly the number asked for, and a projector window of any size draws it
-proportionally, so 24 px looks the same in both.
+proportionally, so 24 px looks the same in both. Any value is accepted, fractions included -- two
+pixels on a 4K recording and half the page height are both things somebody has a reason to want,
+and nothing here knows better than the person watching the result.
 
 Where the pen is comes from `InputContext`, which every pen, eraser and mouse event passes through
 on its way to a handler. Three details are worth knowing:

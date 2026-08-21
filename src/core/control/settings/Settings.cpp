@@ -252,7 +252,7 @@ void Settings::loadDefault() {
     this->videoRecordingContainer = "mov";
     this->videoRecordingExtraArguments = "";
     this->videoRecordingShowPointer = true;
-    this->videoRecordingPointerSize = 24;
+    this->videoRecordingPointerSize = 24.0;
     this->videoRecordingPointerShape = POINTER_MARKER_DISK;
 
     // Microphone processing defaults, in the same order the chain runs. A bare microphone into a
@@ -820,8 +820,7 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingShowPointer")) == 0) {
         this->videoRecordingShowPointer = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingPointerSize")) == 0) {
-        this->videoRecordingPointerSize =
-                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+        this->videoRecordingPointerSize = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingPointerShape")) == 0) {
         this->videoRecordingPointerShape = pointerMarkerShapeFromString(reinterpret_cast<const char*>(value));
 
@@ -1428,7 +1427,7 @@ void Settings::save() {
     ATTACH_COMMENT("Extra ffmpeg arguments, appended last so they override everything else.");
     SAVE_BOOL_PROP(videoRecordingShowPointer);
     ATTACH_COMMENT("Draw a marker at the pen's position into the recorded picture.");
-    SAVE_INT_PROP(videoRecordingPointerSize);
+    SAVE_DOUBLE_PROP(videoRecordingPointerSize);
     ATTACH_COMMENT("Diameter of that marker, in pixels of the recorded frame.");
     xmlNode = saveProperty("videoRecordingPointerShape",
                            pointerMarkerShapeToString(this->videoRecordingPointerShape), root);
@@ -2844,9 +2843,9 @@ void Settings::setVideoRecordingShowPointer(bool show) {
     save();
 }
 
-auto Settings::getVideoRecordingPointerSize() const -> int { return this->videoRecordingPointerSize; }
+auto Settings::getVideoRecordingPointerSize() const -> double { return this->videoRecordingPointerSize; }
 
-void Settings::setVideoRecordingPointerSize(int pixels) {
+void Settings::setVideoRecordingPointerSize(double pixels) {
     if (this->videoRecordingPointerSize == pixels) {
         return;
     }

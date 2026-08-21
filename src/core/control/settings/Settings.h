@@ -579,9 +579,13 @@ public:
      * Given in output pixels rather than document units for the same reason the caption safe area
      * is: what matters is whether it reads on the finished video. Held to a fraction of the page
      * so it means the same thing in a projector window of any size.
+     *
+     * Not an integer, and deliberately unbounded above: a marker two pixels across is a legitimate
+     * thing to want on a 4K recording, and so is one that takes up half the page. Nothing here
+     * knows better than the person watching the result which of those is right.
      */
-    int getVideoRecordingPointerSize() const;
-    void setVideoRecordingPointerSize(int pixels);
+    double getVideoRecordingPointerSize() const;
+    void setVideoRecordingPointerSize(double pixels);
 
     /**
      * Which shape that marker takes.
@@ -1407,7 +1411,7 @@ private:
     std::string videoRecordingContainer;
     std::string videoRecordingExtraArguments;
     bool videoRecordingShowPointer{};
-    int videoRecordingPointerSize{};
+    double videoRecordingPointerSize{};
     PointerMarkerShape videoRecordingPointerShape{};
 
     /**

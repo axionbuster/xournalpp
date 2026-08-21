@@ -171,13 +171,16 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
                   "the writing underneath still shows through it. The projector window shows it too."));
         gtk_box_pack_start(GTK_BOX(content), this->cbShowPointer, FALSE, TRUE, 0);
 
-        this->spPointerSize = makeSpin(4, 400, 2);
+        // No upper bound worth defending: a marker two pixels across is reasonable on a 4K
+        // recording and one that fills half the page is reasonable when the point is emphasis.
+        this->spPointerSize = makeDecimalSpin(0.1, 100000.0, 1.0, 1);
         gtk_widget_set_tooltip_text(this->spPointerSize,
-                                    _("Measured on the finished video, so a ring 24 px across stays 24 px across "
-                                      "whatever resolution is recorded and whatever size the projector window is."));
+                                    _("The marker's diameter, measured on the finished video: 24 px stays 24 px "
+                                      "whatever resolution is recorded and whatever size the projector window is. "
+                                      "Any value at all, fractions included."));
         this->boxPointerSize = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
         gtk_widget_set_margin_start(this->boxPointerSize, 22);
-        gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("Size:")), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("Diameter:")), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(this->boxPointerSize), this->spPointerSize, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("px of the recorded frame")), FALSE, FALSE,
                            0);
@@ -592,7 +595,7 @@ void RecordingSettingsPanel::save(Settings& settings) {
     settings.setVideoRecordingWithAudio(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbWithAudio)));
     settings.setVideoRecordingKeepAudioFile(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbKeepAudioFile)));
     settings.setVideoRecordingShowPointer(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(this->cbShowPointer)));
-    settings.setVideoRecordingPointerSize(gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(this->spPointerSize)));
+    settings.setVideoRecordingPointerSize(gtk_spin_button_get_value(GTK_SPIN_BUTTON(this->spPointerSize)));
     if (const gchar* shape = gtk_combo_box_get_active_id(GTK_COMBO_BOX(this->cbPointerShape)); shape != nullptr) {
         settings.setVideoRecordingPointerShape(pointerMarkerShapeFromString(shape));
     }
