@@ -157,6 +157,17 @@ protected:
     bool draggingFirstAnchor = false;
 
     /**
+     * @brief Where the grabbed anchor sits relative to the press, in page units.
+     *
+     * A grab lands anywhere within the grab radius — often on the arrow head rather than on the
+     * anchor itself. Motion events add this offset so the anchor moves with the cursor from
+     * where it already is, instead of jumping under the cursor on the first movement. Zero when
+     * drawing a new shape.
+     */
+    double grabOffsetX = 0;
+    double grabOffsetY = 0;
+
+    /**
      * @brief Has the pointer actually moved since the press?
      *
      * A grab released without any motion puts the original back untouched instead of committing

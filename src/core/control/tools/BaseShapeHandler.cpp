@@ -117,7 +117,7 @@ auto BaseShapeHandler::onKeyReleaseEvent(const KeyEvent& event) -> bool { return
 
 
 auto BaseShapeHandler::onMotionNotifyEvent(const PositionInputData& pos, double zoom) -> bool {
-    Point newPoint(pos.x / zoom, pos.y / zoom);
+    Point newPoint(pos.x / zoom + this->grabOffsetX, pos.y / zoom + this->grabOffsetY);
     if (!validMotion(newPoint, this->currPoint)) {
         return true;
     }
@@ -192,6 +192,11 @@ void BaseShapeHandler::onButtonPressEvent(const PositionInputData& pos, double z
         // Re-editing an existing shape: the anchors were seeded by grabExistingStroke(), and the
         // replacement inherits the original's color, width, fill and line style rather than the
         // current tool's. Grabbing an end adjusts geometry, never style.
+        //
+        // currPoint still holds the grabbed anchor here, so this is the vector from the press to
+        // the anchor; motion events preserve it for the whole drag.
+        this->grabOffsetX = this->currPoint.x - this->buttonDownPoint.x;
+        this->grabOffsetY = this->currPoint.y - this->buttonDownPoint.y;
         this->stroke = std::make_unique<Stroke>();
         this->stroke->applyStyleFrom(dynamic_cast<const Stroke*>(this->grabbedOriginal.e.get()));
         // Draw the preview straight away. The original left the layer on this very press, so
