@@ -171,13 +171,14 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
                   "the writing underneath still shows through it. The projector window shows it too."));
         gtk_box_pack_start(GTK_BOX(content), this->cbShowPointer, FALSE, TRUE, 0);
 
-        // No upper bound worth defending: a marker two pixels across is reasonable on a 4K
-        // recording and one that fills half the page is reasonable when the point is emphasis.
-        this->spPointerSize = makeDecimalSpin(0.1, 100000.0, 1.0, 1);
+        // No bound worth defending at either end: a marker two pixels across is reasonable on a 4K
+        // recording, one that fills half the page is reasonable when the point is emphasis, and
+        // zero is the natural way to say "not this time" without hunting for the checkbox.
+        this->spPointerSize = makeDecimalSpin(0.0, 100000.0, 1.0, 1);
         gtk_widget_set_tooltip_text(this->spPointerSize,
                                     _("The marker's diameter, measured on the finished video: 24 px stays 24 px "
                                       "whatever resolution is recorded and whatever size the projector window is. "
-                                      "Any value at all, fractions included."));
+                                      "Any value at all, fractions included; 0 draws nothing."));
         this->boxPointerSize = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
         gtk_widget_set_margin_start(this->boxPointerSize, 22);
         gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("Diameter:")), FALSE, FALSE, 0);

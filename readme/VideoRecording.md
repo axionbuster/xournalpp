@@ -49,7 +49,9 @@ of the finished video, the same way the caption safe area is: a recording at the
 draws it at exactly the number asked for, and a projector window of any size draws it
 proportionally, so 24 px looks the same in both. Any value is accepted, fractions included -- two
 pixels on a 4K recording and half the page height are both things somebody has a reason to want,
-and nothing here knows better than the person watching the result.
+and nothing here knows better than the person watching the result. **A diameter of 0 draws
+nothing**, which is the convenient way to switch the marker off while the number is already under
+the cursor; the checkbox does the same thing and remembers the size.
 
 Where the pen is comes from `InputContext`, which every pen, eraser and mouse event passes through
 on its way to a handler. Three details are worth knowing:

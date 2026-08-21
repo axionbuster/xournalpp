@@ -580,9 +580,13 @@ public:
      * is: what matters is whether it reads on the finished video. Held to a fraction of the page
      * so it means the same thing in a projector window of any size.
      *
-     * Not an integer, and deliberately unbounded above: a marker two pixels across is a legitimate
-     * thing to want on a 4K recording, and so is one that takes up half the page. Nothing here
-     * knows better than the person watching the result which of those is right.
+     * Not an integer, and deliberately unbounded at both ends: a marker two pixels across is a
+     * legitimate thing to want on a 4K recording, and so is one that takes up half the page.
+     * Nothing here knows better than the person watching the result which of those is right.
+     *
+     * Zero draws nothing, which is a second way to switch the marker off and the convenient one
+     * while a recording is being set up -- the number is already under the cursor, and putting the
+     * old value back is easier than remembering which checkbox was turned off.
      */
     double getVideoRecordingPointerSize() const;
     void setVideoRecordingPointerSize(double pixels);

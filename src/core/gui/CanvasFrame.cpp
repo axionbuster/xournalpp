@@ -108,6 +108,7 @@ bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double page
     const int frameHeight = std::max(1, settings->getVideoRecordingHeight());
     const double diameter = settings->getVideoRecordingPointerSize() * (areaHeight / frameHeight) / scale;
     if (diameter <= 0.0) {
+        // A size of zero is a supported way of saying "no marker", not a mistake to guard against.
         return false;
     }
     const double radius = diameter / 2.0;
