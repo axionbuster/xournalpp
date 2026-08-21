@@ -113,6 +113,11 @@ void ToolHandler::initTools() {
     tools[TOOL_DRAW_DOUBLE_ARROW - TOOL_PEN] =
             std::make_unique<Tool>("drawDoubleArrow", TOOL_DRAW_DOUBLE_ARROW, Colors::black, std::nullopt);
 
+    tools[TOOL_DRAW_RAY - TOOL_PEN] = std::make_unique<Tool>("drawRay", TOOL_DRAW_RAY, Colors::black, std::nullopt);
+
+    tools[TOOL_DRAW_INFINITE_LINE - TOOL_PEN] =
+            std::make_unique<Tool>("drawInfiniteLine", TOOL_DRAW_INFINITE_LINE, Colors::black, std::nullopt);
+
     tools[TOOL_DRAW_COORDINATE_SYSTEM - TOOL_PEN] =
             std::make_unique<Tool>("drawCoordinateSystem", TOOL_DRAW_COORDINATE_SYSTEM, Colors::black, std::nullopt);
 
@@ -443,8 +448,8 @@ void ToolHandler::saveSettings() const {
         }
 
         static constexpr unsigned int SHAPE_CAPS = TOOL_CAP_RULER | TOOL_CAP_RECTANGLE | TOOL_CAP_ELLIPSE |
-                                                   TOOL_CAP_ARROW | TOOL_CAP_DOUBLE_ARROW | TOOL_CAP_RECOGNIZER |
-                                                   TOOL_CAP_SPLINE;
+                                                   TOOL_CAP_ARROW | TOOL_CAP_DOUBLE_ARROW | TOOL_CAP_RAY |
+                                                   TOOL_CAP_INFINITE_LINE | TOOL_CAP_RECOGNIZER | TOOL_CAP_SPLINE;
         if (tool->capabilities & SHAPE_CAPS) {
             st.setString("drawingType", drawingTypeToString(tool->getDrawingType()).data());
         }
@@ -642,13 +647,15 @@ auto ToolHandler::isSinglePageTool() const -> bool {
 
     return ((toolType == TOOL_PEN || toolType == TOOL_HIGHLIGHTER) &&
             (drawingType == DRAWING_TYPE_ARROW || drawingType == DRAWING_TYPE_DOUBLE_ARROW ||
+             drawingType == DRAWING_TYPE_RAY || drawingType == DRAWING_TYPE_INFINITE_LINE ||
              drawingType == DRAWING_TYPE_ELLIPSE || drawingType == DRAWING_TYPE_COORDINATE_SYSTEM ||
              drawingType == DRAWING_TYPE_LINE || drawingType == DRAWING_TYPE_RECTANGLE ||
              drawingType == DRAWING_TYPE_SPLINE)) ||
            toolType == TOOL_SELECT_RECT || toolType == TOOL_SELECT_REGION || toolType == TOOL_SELECT_MULTILAYER_RECT ||
            toolType == TOOL_SELECT_MULTILAYER_REGION || toolType == TOOL_SELECT_OBJECT || toolType == TOOL_DRAW_RECT ||
            toolType == TOOL_DRAW_ELLIPSE || toolType == TOOL_DRAW_COORDINATE_SYSTEM || toolType == TOOL_DRAW_ARROW ||
-           toolType == TOOL_DRAW_DOUBLE_ARROW || toolType == TOOL_FLOATING_TOOLBOX || toolType == TOOL_DRAW_SPLINE ||
+           toolType == TOOL_DRAW_DOUBLE_ARROW || toolType == TOOL_DRAW_RAY || toolType == TOOL_DRAW_INFINITE_LINE ||
+           toolType == TOOL_FLOATING_TOOLBOX || toolType == TOOL_DRAW_SPLINE ||
            toolType == TOOL_SELECT_PDF_TEXT_LINEAR || toolType == TOOL_SELECT_PDF_TEXT_RECT || toolType == TOOL_LINK;
 }
 
@@ -666,7 +673,8 @@ auto ToolHandler::supportsTapFilter() const -> bool {
     return toolType == TOOL_PEN || toolType == TOOL_HIGHLIGHTER || toolType == TOOL_LASER_POINTER_PEN ||
            toolType == TOOL_LASER_POINTER_HIGHLIGHTER || toolType == TOOL_HAND || toolType == TOOL_DRAW_RECT ||
            toolType == TOOL_DRAW_ELLIPSE || toolType == TOOL_DRAW_COORDINATE_SYSTEM || toolType == TOOL_DRAW_ARROW ||
-           toolType == TOOL_DRAW_DOUBLE_ARROW || toolType == TOOL_DRAW_SPLINE;
+           toolType == TOOL_DRAW_DOUBLE_ARROW || toolType == TOOL_DRAW_RAY || toolType == TOOL_DRAW_INFINITE_LINE ||
+           toolType == TOOL_DRAW_SPLINE;
 }
 
 auto ToolHandler::getSelectedTool(SelectedTool selectedTool) const -> Tool* {

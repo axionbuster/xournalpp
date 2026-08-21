@@ -113,6 +113,8 @@ enum class Action : size_t {
     TOOL_DRAW_COORDINATE_SYSTEM,
     TOOL_DRAW_LINE,
     TOOL_DRAW_SPLINE,
+    TOOL_DRAW_RAY,
+    TOOL_DRAW_INFINITE_LINE,
     SETSQUARE,
     COMPASS,
 
@@ -142,6 +144,20 @@ enum class Action : size_t {
     FONT,  ///< Action whose state is the font's description
     TEXT_ALIGNMENT,
     TEXT_JUSTIFY,
+
+    /**
+     * Font presets: four slots, each holding a font description and a text color.
+     * FONT_PRESET_k applies slot k, SAVE_FONT_PRESET_k overwrites slot k with the
+     * current font and the text tool's current color.
+     */
+    FONT_PRESET_1,
+    FONT_PRESET_2,
+    FONT_PRESET_3,
+    FONT_PRESET_4,
+    SAVE_FONT_PRESET_1,
+    SAVE_FONT_PRESET_2,
+    SAVE_FONT_PRESET_3,
+    SAVE_FONT_PRESET_4,
 
     // Plugin Menu
     PLUGIN_MANAGER,
@@ -176,6 +192,12 @@ enum class Action : size_t {
 
     // Miscellaneous
     POSITION_HIGHLIGHTING,
+
+    /**
+     * Show or hide the projector: a chrome-free mirror of the current page in its own
+     * always-on-top window. Independent of recording in both directions.
+     */
+    PROJECTOR_WINDOW,
 
     // Keep this last value
     ENUMERATOR_COUNT

@@ -18,9 +18,11 @@
 
 class AudioElement;
 class Stroke;
+class Text;
 class XmlAudioNode;
 class XmlNode;
 class XmlPointNode;
+class XmlTextNode;
 
 
 class XojExportHandler: public SaveHandler {
@@ -33,7 +35,8 @@ protected:
      * Export the fill attributes
      */
     void visitStrokeExtended(XmlPointNode* stroke, const Stroke* s) override;
-    void writeHeader() override;
+    void visitTextExtended(XmlTextNode* text, const Text* t) override;
+    void writeHeader(const Document* doc) override;
     void writeSolidBackground(XmlNode* background, ConstPageRef p) override;
     void writeTimestamp(XmlAudioNode* xmlAudioNode, const AudioElement* audioElement) override;
     void writeBackgroundName(XmlNode* background, ConstPageRef p) override;

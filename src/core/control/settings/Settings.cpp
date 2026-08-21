@@ -6,6 +6,7 @@
 #include <cstdlib>      // for atoi
 #include <cstring>      // for strcmp
 #include <exception>    // for exception
+#include <limits>       // for numeric_limits
 #include <type_traits>  // for add_const<>::type
 #include <utility>      // for pair, move, make_...
 
@@ -20,6 +21,7 @@
 #include "control/settings/SettingsEnums.h"         // for InputDeviceTypeOp...
 #include "gui/toolbarMenubar/model/ColorPalette.h"  // for Palette
 #include "model/FormatDefinitions.h"                // for FormatUnits, XOJ_...
+#include "util/Assert.h"  // for xoj_assert
 #include "util/Color.h"
 #include "util/PathUtil.h"  // for getConfigFile
 #include "util/Util.h"      // for PRECISION_FORMAT_...
@@ -38,6 +40,8 @@ using std::string;
 constexpr auto const* DEFAULT_FONT = "Sans";
 constexpr auto DEFAULT_FONT_SIZE = 12;
 constexpr auto DEFAULT_TOOLBAR = "Portrait";
+/// Font presets are stored as properties named fontPreset1 .. fontPreset<FONT_PRESET_COUNT>
+constexpr auto const* FONT_PRESET_PROPERTY_PREFIX = "fontPreset";
 
 #define SAVE_BOOL_PROP(var) xmlNode = saveProperty((const char*)#var, (var) ? "true" : "false", root)
 #define SAVE_STRING_PROP(var) xmlNode = saveProperty((const char*)#var, (var).empty() ? "" : (var).data(), root)
@@ -88,8 +92,13 @@ void Settings::loadDefault() {
     this->font.setName(DEFAULT_FONT);
     this->font.setSize(DEFAULT_FONT_SIZE);
 
+    this->fontPresets.fill(std::nullopt);
+
     this->mainWndWidth = 800;
     this->mainWndHeight = 600;
+    this->mainWndPosX = 0;
+    this->mainWndPosY = 0;
+    this->mainWndMonitor = "";  // empty: no monitor remembered yet, let GTK place the window
 
     this->fullscreenActive = false;
 
@@ -148,6 +157,8 @@ void Settings::loadDefault() {
     this->snapGridSize = DEFAULT_GRID_SIZE;
 
     this->strokeRecognizerMinSize = 40;
+
+    this->extendedLineOvershoot = DEFAULT_EXTENDED_LINE_OVERSHOOT;
 
     this->touchDrawing = false;
     this->gtkTouchInertialScrolling = true;
@@ -218,6 +229,70 @@ void Settings::loadDefault() {
     this->audioGain = 1.0;
     this->defaultSeekTime = 5;
 #endif
+
+    // Video recording defaults: a 1080p60 lecture capture, matching what a typical OBS "simple
+    // output" profile produces, so a recording made here drops straight into the same workflow.
+    this->videoRecordingEnabled = true;
+    this->videoRecordingWithAudio = true;
+    this->videoRecordingKeepAudioFile = false;
+    this->videoFolder = "";
+    this->videoRecordingFfmpegPath = "";
+    this->videoRecordingWidth = 1920;
+    this->videoRecordingHeight = 1080;
+    this->videoRecordingFps = 60;
+    this->videoRecordingVideoBitrate = 6000;
+    this->videoRecordingAudioBitrate = 160;
+#ifdef __APPLE__
+    // The hardware encoder. Software x264 at 1080p60 costs a core that the drawing needs more.
+    this->videoRecordingVideoCodec = "h264_videotoolbox";
+#else
+    this->videoRecordingVideoCodec = "libx264";
+#endif
+    this->videoRecordingAudioCodec = "aac";
+    this->videoRecordingContainer = "mov";
+    this->videoRecordingExtraArguments = "";
+
+    // Microphone processing defaults, in the same order the chain runs. A bare microphone into a
+    // recording sounds like a bare microphone; these are the three things a streaming setup always
+    // puts in front of one, at the settings a close-mic'd voice wants.
+    this->micCompressorEnabled = true;
+    this->micCompressorThreshold = -18.0;
+    // Well past the 4:1 that counts as gentle: a lecture is an hour of one voice at an unwatched
+    // level, and holding it flat matters more than preserving dynamics nobody is listening for.
+    this->micCompressorRatio = 20.0;
+    this->micCompressorAttack = 6.0;
+    this->micCompressorRelease = 60.0;
+    this->micCompressorOutputGain = 6.0;
+
+    this->micEqualizerEnabled = true;
+    this->micEqualizerLow = 0.0;
+    // A shade out of the muddy middle and a lift where consonants live, which is what makes speech
+    // easier to follow rather than merely louder.
+    this->micEqualizerMid = -0.6;
+    this->micEqualizerHigh = 3.6;
+
+    this->micNoiseSuppression = "rnnoise";
+    this->micRnnoiseModel = "";
+
+    this->projectorPosX = 0;
+    this->projectorPosY = 0;
+    // Small on purpose, and only until the first time it is moved or resized, after which its own
+    // remembered size wins. A projector opening at half the screen is something to be dealt with
+    // before it is useful; one that opens as a corner tile is already out of the way, and what it
+    // is mostly used for -- checking the framing and the caption safe area -- reads fine at this
+    // size. 16:9, so it matches the recording it is previewing from the start.
+    this->projectorWidth = 480;
+    this->projectorHeight = 270;
+    this->projectorMonitor = "";
+    this->projectorKeepAbove = true;
+    this->projectorOpenAtStartup = false;
+    this->projectorLockAspectRatio = true;
+    this->projectorShowSafeArea = true;
+    // 150 lines of a 1080-line frame. Subtitling houses ask for a bottom margin in finished-video
+    // pixels rather than a percentage, and 150 is the usual ask for 1080p.
+    this->projectorSafeAreaHeight = 150;
+    this->projectorBackgroundColor = Colors::black;
+    this->showFrameRate = true;
 
     this->pluginEnabled = "";
     this->pluginDisabled = "";
@@ -395,6 +470,48 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         return;
     }
 
+    for (size_t i = 0; i < FONT_PRESET_COUNT; i++) {
+        const std::string propName = FONT_PRESET_PROPERTY_PREFIX + std::to_string(i + 1);
+        if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>(propName.c_str())) != 0) {
+            continue;
+        }
+        xmlFree(name);
+
+        FontPreset preset{XojFont{DEFAULT_FONT, DEFAULT_FONT_SIZE}, Colors::black};
+
+        if (xmlChar* font = xmlGetProp(cur, reinterpret_cast<const xmlChar*>("font")); font) {
+            if (const char* fontName = reinterpret_cast<const char*>(font); *fontName != '\0') {
+                preset.font.setName(fontName);
+            }
+            xmlFree(font);
+        }
+        if (xmlChar* size = xmlGetProp(cur, reinterpret_cast<const xmlChar*>("size")); size) {
+            double dSize = DEFAULT_FONT_SIZE;
+            if (sscanf(reinterpret_cast<const char*>(size), "%lf", &dSize) == 1) {
+                preset.font.setSize(dSize);
+            }
+            xmlFree(size);
+        }
+        if (xmlChar* color = xmlGetProp(cur, reinterpret_cast<const xmlChar*>("color")); color) {
+            /*
+             * A preset's color is applied to document content, so a malformed value must not go
+             * through: g_ascii_strtoull() returns 0 on failure, and Color(0) is fully
+             * transparent, which would make the text invisible instead of leaving it black.
+             */
+            const char* const str = reinterpret_cast<const char*>(color);
+            char* end = nullptr;
+            const uint64_t parsed = g_ascii_strtoull(str, &end, 10);
+            if (end != str && *end == '\0' && parsed <= std::numeric_limits<uint32_t>::max()) {
+                preset.color = Color(static_cast<uint32_t>(parsed));
+                preset.color.alpha = 0xffU;  // text is drawn opaque, as ToolHandler does for tools
+            }
+            xmlFree(color);
+        }
+
+        this->fontPresets[i] = preset;
+        return;
+    }
+
     xmlChar* value = xmlGetProp(cur, reinterpret_cast<const xmlChar*>("value"));
     if (value == nullptr) {
         xmlFree(name);
@@ -439,6 +556,12 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->mainWndWidth = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("mainWndHeight")) == 0) {
         this->mainWndHeight = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("mainWndPosX")) == 0) {
+        this->mainWndPosX = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("mainWndPosY")) == 0) {
+        this->mainWndPosY = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("mainWndMonitor")) == 0) {
+        this->mainWndMonitor = reinterpret_cast<const char*>(value);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("maximized")) == 0) {
         this->maximized = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("showToolbar")) == 0) {
@@ -484,6 +607,14 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->numPairsOffset = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("presentationMode")) == 0) {
         this->presentationMode = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+        if (this->presentationMode) {
+            // isPresentationMode() answers from activeViewMode, NOT from this flag. Loading the
+            // flag without also moving activeViewMode leaves the two disagreeing, and because
+            // activeViewMode is still VIEW_MODE_DEFAULT the startup check in Control::initWindow
+            // cannot fire -- which is why presentationMode="true" survived a restart in
+            // settings.xml but the app always came up with the mode off.
+            this->activeViewMode = PresetViewModeIds::VIEW_MODE_PRESENTATION;
+        }
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("autoloadMostRecent")) == 0) {
         this->autoloadMostRecent = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("autoloadPdfXoj")) == 0) {
@@ -614,6 +745,10 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
         this->snapGridTolerance = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("strokeRecognizerMinSize")) == 0) {
         this->strokeRecognizerMinSize = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("extendedLineOvershoot")) == 0) {
+        // A negative overshoot would flip the arrow heads onto the wrong side of the anchor points
+        this->extendedLineOvershoot =
+                std::max(0.0, tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr));
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("touchDrawing")) == 0) {
         this->touchDrawing = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("gtkTouchInertialScrolling")) == 0) {
@@ -646,6 +781,92 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("audioOutputDevice")) == 0) {
         this->audioOutputDevice = g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10);
 #endif
+
+        // Video recording
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingEnabled")) == 0) {
+        this->videoRecordingEnabled = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingWithAudio")) == 0) {
+        this->videoRecordingWithAudio = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingKeepAudioFile")) == 0) {
+        this->videoRecordingKeepAudioFile = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoFolder")) == 0) {
+        this->videoFolder = fs::path(reinterpret_cast<const char*>(value));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingFfmpegPath")) == 0) {
+        this->videoRecordingFfmpegPath = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingWidth")) == 0) {
+        this->videoRecordingWidth = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingHeight")) == 0) {
+        this->videoRecordingHeight =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingFps")) == 0) {
+        this->videoRecordingFps = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingVideoBitrate")) == 0) {
+        this->videoRecordingVideoBitrate =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingAudioBitrate")) == 0) {
+        this->videoRecordingAudioBitrate =
+                static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingVideoCodec")) == 0) {
+        this->videoRecordingVideoCodec = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingAudioCodec")) == 0) {
+        this->videoRecordingAudioCodec = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingContainer")) == 0) {
+        this->videoRecordingContainer = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("videoRecordingExtraArguments")) == 0) {
+        this->videoRecordingExtraArguments = reinterpret_cast<const char*>(value);
+
+        // Microphone processing
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorEnabled")) == 0) {
+        this->micCompressorEnabled = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorThreshold")) == 0) {
+        this->micCompressorThreshold = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorRatio")) == 0) {
+        this->micCompressorRatio = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorAttack")) == 0) {
+        this->micCompressorAttack = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorRelease")) == 0) {
+        this->micCompressorRelease = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micCompressorOutputGain")) == 0) {
+        this->micCompressorOutputGain = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micEqualizerEnabled")) == 0) {
+        this->micEqualizerEnabled = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micEqualizerLow")) == 0) {
+        this->micEqualizerLow = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micEqualizerMid")) == 0) {
+        this->micEqualizerMid = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micEqualizerHigh")) == 0) {
+        this->micEqualizerHigh = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micNoiseSuppression")) == 0) {
+        this->micNoiseSuppression = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("micRnnoiseModel")) == 0) {
+        this->micRnnoiseModel = reinterpret_cast<const char*>(value);
+
+        // Projector window
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorPosX")) == 0) {
+        this->projectorPosX = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorPosY")) == 0) {
+        this->projectorPosY = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorWidth")) == 0) {
+        this->projectorWidth = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorHeight")) == 0) {
+        this->projectorHeight = static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorMonitor")) == 0) {
+        this->projectorMonitor = reinterpret_cast<const char*>(value);
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorKeepAbove")) == 0) {
+        this->projectorKeepAbove = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorOpenAtStartup")) == 0) {
+        this->projectorOpenAtStartup = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorLockAspectRatio")) == 0) {
+        this->projectorLockAspectRatio = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorShowSafeArea")) == 0) {
+        this->projectorShowSafeArea = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorSafeAreaHeight")) == 0) {
+        this->projectorSafeAreaHeight =
+                std::max<int>(0, static_cast<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10)));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("projectorBackgroundColor")) == 0) {
+        this->projectorBackgroundColor = Color(g_ascii_strtoull(reinterpret_cast<const char*>(value), nullptr, 10));
+    } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("showFrameRate")) == 0) {
+        this->showFrameRate = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("numIgnoredStylusEvents")) == 0) {
         this->numIgnoredStylusEvents =
                 std::max<int>(g_ascii_strtoll(reinterpret_cast<const char*>(value), nullptr, 10), 0);
@@ -1031,6 +1252,9 @@ void Settings::save() {
     SAVE_INT_PROP(displayDpi);
     SAVE_INT_PROP(mainWndWidth);
     SAVE_INT_PROP(mainWndHeight);
+    SAVE_INT_PROP(mainWndPosX);
+    SAVE_INT_PROP(mainWndPosY);
+    SAVE_STRING_PROP(mainWndMonitor);
     SAVE_BOOL_PROP(maximized);
 
     SAVE_BOOL_PROP(showToolbar);
@@ -1133,6 +1357,8 @@ void Settings::save() {
 
     SAVE_DOUBLE_PROP(strokeRecognizerMinSize);
 
+    SAVE_DOUBLE_PROP(extendedLineOvershoot);
+
     SAVE_BOOL_PROP(touchDrawing);
     SAVE_BOOL_PROP(gtkTouchInertialScrolling);
     SAVE_BOOL_PROP(pressureGuessing);
@@ -1170,6 +1396,60 @@ void Settings::save() {
     SAVE_DOUBLE_PROP(audioGain);
     SAVE_INT_PROP(defaultSeekTime);
 #endif
+
+    SAVE_BOOL_PROP(videoRecordingEnabled);
+    SAVE_BOOL_PROP(videoRecordingWithAudio);
+    SAVE_BOOL_PROP(videoRecordingKeepAudioFile);
+    ATTACH_COMMENT("Also write the separate sound file that strokes are timestamped against.");
+    saveProperty("videoFolder", char_cast(this->videoFolder.u8string().c_str()), root);
+    SAVE_STRING_PROP(videoRecordingFfmpegPath);
+    ATTACH_COMMENT("Full path to the ffmpeg binary; empty means look on PATH.");
+    SAVE_INT_PROP(videoRecordingWidth);
+    SAVE_INT_PROP(videoRecordingHeight);
+    SAVE_INT_PROP(videoRecordingFps);
+    SAVE_INT_PROP(videoRecordingVideoBitrate);
+    ATTACH_COMMENT("Video bitrate in kbit/s.");
+    SAVE_INT_PROP(videoRecordingAudioBitrate);
+    ATTACH_COMMENT("Audio bitrate in kbit/s.");
+    SAVE_STRING_PROP(videoRecordingVideoCodec);
+    SAVE_STRING_PROP(videoRecordingAudioCodec);
+    SAVE_STRING_PROP(videoRecordingContainer);
+    SAVE_STRING_PROP(videoRecordingExtraArguments);
+    ATTACH_COMMENT("Extra ffmpeg arguments, appended last so they override everything else.");
+
+    SAVE_BOOL_PROP(micCompressorEnabled);
+    SAVE_DOUBLE_PROP(micCompressorThreshold);
+    ATTACH_COMMENT("Compressor threshold in dB.");
+    SAVE_DOUBLE_PROP(micCompressorRatio);
+    SAVE_DOUBLE_PROP(micCompressorAttack);
+    ATTACH_COMMENT("Compressor attack and release in milliseconds.");
+    SAVE_DOUBLE_PROP(micCompressorRelease);
+    SAVE_DOUBLE_PROP(micCompressorOutputGain);
+    ATTACH_COMMENT("Gain applied after compressing, in dB.");
+    SAVE_BOOL_PROP(micEqualizerEnabled);
+    SAVE_DOUBLE_PROP(micEqualizerLow);
+    SAVE_DOUBLE_PROP(micEqualizerMid);
+    SAVE_DOUBLE_PROP(micEqualizerHigh);
+    ATTACH_COMMENT("Equalizer band gains in dB.");
+    SAVE_STRING_PROP(micNoiseSuppression);
+    ATTACH_COMMENT("One of off, rnnoise or fft.");
+    SAVE_STRING_PROP(micRnnoiseModel);
+    ATTACH_COMMENT("An .rnnn model file; empty means the one shipped with the application.");
+
+    SAVE_INT_PROP(projectorPosX);
+    SAVE_INT_PROP(projectorPosY);
+    SAVE_INT_PROP(projectorWidth);
+    SAVE_INT_PROP(projectorHeight);
+    SAVE_STRING_PROP(projectorMonitor);
+    SAVE_BOOL_PROP(projectorKeepAbove);
+    SAVE_BOOL_PROP(projectorOpenAtStartup);
+    SAVE_BOOL_PROP(projectorLockAspectRatio);
+    SAVE_BOOL_PROP(projectorShowSafeArea);
+    SAVE_INT_PROP(projectorSafeAreaHeight);
+    ATTACH_COMMENT("Height of the caption safe area, in pixels of the recording's own frame.");
+    xmlNode = savePropertyUnsigned("projectorBackgroundColor", uint32_t(projectorBackgroundColor), root);
+    SAVE_BOOL_PROP(showFrameRate);
+    ATTACH_COMMENT("Show the frame rate in the projector and on the record button. Never in the recording.");
 
     SAVE_STRING_PROP(pluginEnabled);
     SAVE_STRING_PROP(pluginDisabled);
@@ -1247,6 +1527,27 @@ void Settings::save() {
                     this->font.getSize());  // no locale
     xmlSetProp(xmlFont, reinterpret_cast<const xmlChar*>("size"), reinterpret_cast<const xmlChar*>(sSize));
 
+    for (size_t i = 0; i < FONT_PRESET_COUNT; i++) {
+        if (!this->fontPresets[i]) {
+            continue;
+        }
+        const FontPreset& preset = *this->fontPresets[i];
+        const std::string propName = FONT_PRESET_PROPERTY_PREFIX + std::to_string(i + 1);
+
+        xmlNodePtr xmlPreset = xmlNewChild(root, nullptr, reinterpret_cast<const xmlChar*>("property"), nullptr);
+        xmlSetProp(xmlPreset, reinterpret_cast<const xmlChar*>("name"),
+                   reinterpret_cast<const xmlChar*>(propName.c_str()));
+        xmlSetProp(xmlPreset, reinterpret_cast<const xmlChar*>("font"),
+                   reinterpret_cast<const xmlChar*>(preset.font.getName().c_str()));
+
+        g_ascii_formatd(sSize, G_ASCII_DTOSTR_BUF_SIZE, Util::PRECISION_FORMAT_STRING,
+                        preset.font.getSize());  // no locale
+        xmlSetProp(xmlPreset, reinterpret_cast<const xmlChar*>("size"), reinterpret_cast<const xmlChar*>(sSize));
+
+        char sColor[G_ASCII_DTOSTR_BUF_SIZE];
+        g_snprintf(sColor, G_ASCII_DTOSTR_BUF_SIZE, "%u", uint32_t(preset.color));
+        xmlSetProp(xmlPreset, reinterpret_cast<const xmlChar*>("color"), reinterpret_cast<const xmlChar*>(sColor));
+    }
 
     for (std::map<string, SElement>::value_type p: data) {
         saveData(root, p.first, p.second);
@@ -1644,6 +1945,16 @@ void Settings::setStrokeRecognizerMinSize(double value) {
     }
 
     this->strokeRecognizerMinSize = value;
+    save();
+};
+
+auto Settings::getExtendedLineOvershoot() const -> double { return this->extendedLineOvershoot; };
+void Settings::setExtendedLineOvershoot(double value) {
+    if (this->extendedLineOvershoot == value) {
+        return;
+    }
+
+    this->extendedLineOvershoot = value;
     save();
 };
 
@@ -2081,6 +2392,57 @@ auto Settings::getMainWndWidth() const -> int { return this->mainWndWidth; }
 
 auto Settings::getMainWndHeight() const -> int { return this->mainWndHeight; }
 
+/**
+ * Identify a monitor by what it IS rather than by where it currently sits. Manufacturer and model
+ * come from EDID and survive unplugging, changing the arrangement, and reordering; the monitor
+ * index does not. Geometry is only a fallback for backends that expose no EDID at all -- it is a
+ * weaker identity, but two monitors of identical size are still a far better guess than an index.
+ */
+auto Settings::describeMonitor(GdkMonitor* monitor) -> std::string {
+    if (monitor == nullptr) {
+        return "";
+    }
+
+    const char* manufacturer = gdk_monitor_get_manufacturer(monitor);
+    const char* model = gdk_monitor_get_model(monitor);
+
+    std::string description;
+    if (manufacturer != nullptr && *manufacturer != '\0') {
+        description += manufacturer;
+    }
+    if (model != nullptr && *model != '\0') {
+        if (!description.empty()) {
+            description += " ";
+        }
+        description += model;
+    }
+
+    if (description.empty()) {
+        GdkRectangle geometry{};
+        gdk_monitor_get_geometry(monitor, &geometry);
+        description = "monitor-" + std::to_string(geometry.width) + "x" + std::to_string(geometry.height);
+    }
+
+    return description;
+}
+
+void Settings::setMainWndPos(int x, int y, const std::string& monitor) {
+    if (this->mainWndPosX == x && this->mainWndPosY == y && this->mainWndMonitor == monitor) {
+        return;
+    }
+    this->mainWndPosX = x;
+    this->mainWndPosY = y;
+    this->mainWndMonitor = monitor;
+
+    save();
+}
+
+auto Settings::getMainWndPosX() const -> int { return this->mainWndPosX; }
+
+auto Settings::getMainWndPosY() const -> int { return this->mainWndPosY; }
+
+auto Settings::getMainWndMonitor() const -> const std::string& { return this->mainWndMonitor; }
+
 auto Settings::isMainWndMaximized() const -> bool { return this->maximized; }
 
 void Settings::setMainWndMaximized(bool max) {
@@ -2239,6 +2601,17 @@ void Settings::setFont(const XojFont& font) {
     save();
 }
 
+auto Settings::getFontPreset(size_t index) const -> const std::optional<FontPreset>& {
+    xoj_assert(index < FONT_PRESET_COUNT);
+    return this->fontPresets[index];
+}
+
+void Settings::setFontPreset(size_t index, const FontPreset& preset) {
+    xoj_assert(index < FONT_PRESET_COUNT);
+    this->fontPresets[index] = preset;
+    save();
+}
+
 #ifdef ENABLE_AUDIO
 auto Settings::getAudioFolder() const -> fs::path const& { return this->audioFolder; }
 
@@ -2302,6 +2675,307 @@ void Settings::setDefaultSeekTime(unsigned int t) {
     save();
 }
 #endif
+
+/*
+ * Video recording
+ * ---------------------------------------------------------------------------------------------
+ * Every setter follows the same shape as the rest of this file: bail out when nothing changed,
+ * otherwise assign and persist immediately. Writing on every change is what lets the recorder read
+ * settings straight off this object without any notion of "apply".
+ */
+
+auto Settings::isVideoRecordingEnabled() const -> bool { return this->videoRecordingEnabled; }
+
+void Settings::setVideoRecordingEnabled(bool value) {
+    if (this->videoRecordingEnabled == value) {
+        return;
+    }
+    this->videoRecordingEnabled = value;
+    save();
+}
+
+auto Settings::isVideoRecordingWithAudio() const -> bool { return this->videoRecordingWithAudio; }
+
+void Settings::setVideoRecordingWithAudio(bool value) {
+    if (this->videoRecordingWithAudio == value) {
+        return;
+    }
+    this->videoRecordingWithAudio = value;
+    save();
+}
+
+auto Settings::isVideoRecordingKeepAudioFile() const -> bool { return this->videoRecordingKeepAudioFile; }
+
+void Settings::setVideoRecordingKeepAudioFile(bool value) {
+    if (this->videoRecordingKeepAudioFile == value) {
+        return;
+    }
+    this->videoRecordingKeepAudioFile = value;
+    save();
+}
+
+auto Settings::getVideoFolder() const -> fs::path const& { return this->videoFolder; }
+
+void Settings::setVideoFolder(fs::path folder) {
+    if (this->videoFolder == folder) {
+        return;
+    }
+    this->videoFolder = std::move(folder);
+    save();
+}
+
+auto Settings::getVideoRecordingFfmpegPath() const -> string const& { return this->videoRecordingFfmpegPath; }
+
+void Settings::setVideoRecordingFfmpegPath(string value) {
+    if (this->videoRecordingFfmpegPath == value) {
+        return;
+    }
+    this->videoRecordingFfmpegPath = std::move(value);
+    save();
+}
+
+auto Settings::getVideoRecordingWidth() const -> int { return this->videoRecordingWidth; }
+
+auto Settings::getVideoRecordingHeight() const -> int { return this->videoRecordingHeight; }
+
+void Settings::setVideoRecordingSize(int width, int height) {
+    if (this->videoRecordingWidth == width && this->videoRecordingHeight == height) {
+        return;
+    }
+    this->videoRecordingWidth = width;
+    this->videoRecordingHeight = height;
+    save();
+}
+
+auto Settings::getVideoRecordingFps() const -> int { return this->videoRecordingFps; }
+
+void Settings::setVideoRecordingFps(int value) {
+    if (this->videoRecordingFps == value) {
+        return;
+    }
+    this->videoRecordingFps = value;
+    save();
+}
+
+auto Settings::getVideoRecordingVideoBitrate() const -> int { return this->videoRecordingVideoBitrate; }
+
+void Settings::setVideoRecordingVideoBitrate(int value) {
+    if (this->videoRecordingVideoBitrate == value) {
+        return;
+    }
+    this->videoRecordingVideoBitrate = value;
+    save();
+}
+
+auto Settings::getVideoRecordingAudioBitrate() const -> int { return this->videoRecordingAudioBitrate; }
+
+void Settings::setVideoRecordingAudioBitrate(int value) {
+    if (this->videoRecordingAudioBitrate == value) {
+        return;
+    }
+    this->videoRecordingAudioBitrate = value;
+    save();
+}
+
+auto Settings::getVideoRecordingVideoCodec() const -> string const& { return this->videoRecordingVideoCodec; }
+
+void Settings::setVideoRecordingVideoCodec(string value) {
+    if (this->videoRecordingVideoCodec == value) {
+        return;
+    }
+    this->videoRecordingVideoCodec = std::move(value);
+    save();
+}
+
+auto Settings::getVideoRecordingAudioCodec() const -> string const& { return this->videoRecordingAudioCodec; }
+
+void Settings::setVideoRecordingAudioCodec(string value) {
+    if (this->videoRecordingAudioCodec == value) {
+        return;
+    }
+    this->videoRecordingAudioCodec = std::move(value);
+    save();
+}
+
+auto Settings::getVideoRecordingContainer() const -> string const& { return this->videoRecordingContainer; }
+
+void Settings::setVideoRecordingContainer(string value) {
+    if (this->videoRecordingContainer == value) {
+        return;
+    }
+    this->videoRecordingContainer = std::move(value);
+    save();
+}
+
+auto Settings::getVideoRecordingExtraArguments() const -> string const& { return this->videoRecordingExtraArguments; }
+
+void Settings::setVideoRecordingExtraArguments(string value) {
+    if (this->videoRecordingExtraArguments == value) {
+        return;
+    }
+    this->videoRecordingExtraArguments = std::move(value);
+    save();
+}
+
+/*
+ * Microphone processing
+ *
+ * Written out with a macro because there are fourteen of these and they are all the same setter:
+ * ignore a write that changes nothing, otherwise store it and save. Spelling each one out adds
+ * ninety lines in which the only thing that varies is a name.
+ */
+
+#define MIC_ACCESSORS(Name, member, type)                       \
+    auto Settings::get##Name() const->type { return member; }   \
+    void Settings::set##Name(type value) {                      \
+        if (member == value) {                                  \
+            return;                                             \
+        }                                                       \
+        member = value;                                         \
+        save();                                                 \
+    }
+
+auto Settings::isMicCompressorEnabled() const -> bool { return this->micCompressorEnabled; }
+void Settings::setMicCompressorEnabled(bool value) {
+    if (this->micCompressorEnabled == value) {
+        return;
+    }
+    this->micCompressorEnabled = value;
+    save();
+}
+
+MIC_ACCESSORS(MicCompressorThreshold, this->micCompressorThreshold, double)
+MIC_ACCESSORS(MicCompressorRatio, this->micCompressorRatio, double)
+MIC_ACCESSORS(MicCompressorAttack, this->micCompressorAttack, double)
+MIC_ACCESSORS(MicCompressorRelease, this->micCompressorRelease, double)
+MIC_ACCESSORS(MicCompressorOutputGain, this->micCompressorOutputGain, double)
+
+auto Settings::isMicEqualizerEnabled() const -> bool { return this->micEqualizerEnabled; }
+void Settings::setMicEqualizerEnabled(bool value) {
+    if (this->micEqualizerEnabled == value) {
+        return;
+    }
+    this->micEqualizerEnabled = value;
+    save();
+}
+
+MIC_ACCESSORS(MicEqualizerLow, this->micEqualizerLow, double)
+MIC_ACCESSORS(MicEqualizerMid, this->micEqualizerMid, double)
+MIC_ACCESSORS(MicEqualizerHigh, this->micEqualizerHigh, double)
+
+#undef MIC_ACCESSORS
+
+auto Settings::getMicNoiseSuppression() const -> string const& { return this->micNoiseSuppression; }
+void Settings::setMicNoiseSuppression(string value) {
+    if (this->micNoiseSuppression == value) {
+        return;
+    }
+    this->micNoiseSuppression = std::move(value);
+    save();
+}
+
+auto Settings::getMicRnnoiseModel() const -> string const& { return this->micRnnoiseModel; }
+void Settings::setMicRnnoiseModel(string value) {
+    if (this->micRnnoiseModel == value) {
+        return;
+    }
+    this->micRnnoiseModel = std::move(value);
+    save();
+}
+
+/*
+ * Projector window
+ */
+
+void Settings::setProjectorGeometry(int x, int y, int width, int height, const std::string& monitor) {
+    if (this->projectorPosX == x && this->projectorPosY == y && this->projectorWidth == width &&
+        this->projectorHeight == height && this->projectorMonitor == monitor) {
+        return;
+    }
+    this->projectorPosX = x;
+    this->projectorPosY = y;
+    this->projectorWidth = width;
+    this->projectorHeight = height;
+    this->projectorMonitor = monitor;
+    save();
+}
+
+auto Settings::getProjectorPosX() const -> int { return this->projectorPosX; }
+auto Settings::getProjectorPosY() const -> int { return this->projectorPosY; }
+auto Settings::getProjectorWidth() const -> int { return this->projectorWidth; }
+auto Settings::getProjectorHeight() const -> int { return this->projectorHeight; }
+auto Settings::getProjectorMonitor() const -> string const& { return this->projectorMonitor; }
+
+auto Settings::isProjectorKeepAbove() const -> bool { return this->projectorKeepAbove; }
+
+void Settings::setProjectorKeepAbove(bool keepAbove) {
+    if (this->projectorKeepAbove == keepAbove) {
+        return;
+    }
+    this->projectorKeepAbove = keepAbove;
+    save();
+}
+
+auto Settings::isProjectorOpenAtStartup() const -> bool { return this->projectorOpenAtStartup; }
+
+void Settings::setProjectorOpenAtStartup(bool open) {
+    if (this->projectorOpenAtStartup == open) {
+        return;
+    }
+    this->projectorOpenAtStartup = open;
+    save();
+}
+
+auto Settings::isProjectorLockAspectRatio() const -> bool { return this->projectorLockAspectRatio; }
+
+void Settings::setProjectorLockAspectRatio(bool lock) {
+    if (this->projectorLockAspectRatio == lock) {
+        return;
+    }
+    this->projectorLockAspectRatio = lock;
+    save();
+}
+
+auto Settings::isProjectorShowSafeArea() const -> bool { return this->projectorShowSafeArea; }
+
+void Settings::setProjectorShowSafeArea(bool show) {
+    if (this->projectorShowSafeArea == show) {
+        return;
+    }
+    this->projectorShowSafeArea = show;
+    save();
+}
+
+auto Settings::getProjectorSafeAreaHeight() const -> int { return this->projectorSafeAreaHeight; }
+
+void Settings::setProjectorSafeAreaHeight(int pixels) {
+    const int clamped = std::max(0, pixels);
+    if (this->projectorSafeAreaHeight == clamped) {
+        return;
+    }
+    this->projectorSafeAreaHeight = clamped;
+    save();
+}
+
+auto Settings::getProjectorBackgroundColor() const -> Color { return this->projectorBackgroundColor; }
+
+void Settings::setProjectorBackgroundColor(Color color) {
+    if (this->projectorBackgroundColor == color) {
+        return;
+    }
+    this->projectorBackgroundColor = color;
+    save();
+}
+
+auto Settings::isShowFrameRate() const -> bool { return this->showFrameRate; }
+
+void Settings::setShowFrameRate(bool show) {
+    if (this->showFrameRate == show) {
+        return;
+    }
+    this->showFrameRate = show;
+    save();
+}
 
 auto Settings::getPluginEnabled() const -> string const& { return this->pluginEnabled; }
 

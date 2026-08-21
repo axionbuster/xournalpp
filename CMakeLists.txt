@@ -167,6 +167,31 @@ option(ENABLE_AUDIO "Compile with Audio recording/playing support" ON)
 if (ENABLE_AUDIO)
     message(STATUS "Enable Audio support")
     pkg_check_modules(ExternalAudioModules REQUIRED IMPORTED_TARGET "portaudiocpp >= 12;sndfile >= 1.0.25")
+    if (APPLE)
+        # portaudio's .pc hands us five "-framework X" two-token pairs. CMake
+        # de-duplicates INTERFACE_LINK_OPTIONS, so the repeated "-framework"
+        # tokens collapse and the link line ends up with bare framework names
+        # ("no such file or directory: 'AudioUnit'"). Fold each pair into the
+        # single-token "-Wl,-framework,X" form, which survives de-duplication
+        # (gtk's .pc already uses that form for Cocoa).
+        get_target_property(_audio_link_opts PkgConfig::ExternalAudioModules INTERFACE_LINK_OPTIONS)
+        if (_audio_link_opts)
+            set(_folded_opts "")
+            set(_pending_framework FALSE)
+            foreach (_opt IN LISTS _audio_link_opts)
+                if (_pending_framework)
+                    list(APPEND _folded_opts "-Wl,-framework,${_opt}")
+                    set(_pending_framework FALSE)
+                elseif (_opt STREQUAL "-framework")
+                    set(_pending_framework TRUE)
+                else ()
+                    list(APPEND _folded_opts "${_opt}")
+                endif ()
+            endforeach ()
+            set_target_properties(PkgConfig::ExternalAudioModules PROPERTIES
+                                  INTERFACE_LINK_OPTIONS "${_folded_opts}")
+        endif ()
+    endif ()
 else ()
     message(STATUS "Disable Audio support")
 endif ()
@@ -318,7 +343,11 @@ set(DEV_DEFAULT_PALETTE_FILE "xournal.gpl" CACHE STRING "Default Color Palette")
 set(DEV_PRINT_CONFIG_FILE "print-config.ini" CACHE STRING "Print config file name")
 set(DEV_METADATA_FILE "metadata.ini" CACHE STRING "Metadata file name")
 set(DEV_ERRORLOG_DIR "errorlogs" CACHE STRING "Directory where errorlogfiles will be placed")
-set(DEV_FILE_FORMAT_VERSION 5 CACHE STRING "File format version" FORCE)
+# Version 6 adds this fork's file format extensions (extra attributes on existing elements).
+# It is what this build ACCEPTS without the "file version mismatch" prompt; SaveHandler only
+# writes it for documents that actually use those extensions, and writes
+# SaveHandler::STOCK_FILE_FORMAT_VERSION for every other document.
+set(DEV_FILE_FORMAT_VERSION 6 CACHE STRING "File format version" FORCE)
 
 option(DEV_ENABLE_GCOV "Build with gcov support" OFF) # Enabel gcov support – expanded in src/
 

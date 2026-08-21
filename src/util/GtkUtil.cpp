@@ -9,7 +9,52 @@
 #include "util/Assert.h"
 #include "util/raii/GVariantSPtr.h"
 
+#ifdef GDK_WINDOWING_QUARTZ
+#include <objc/message.h>  // for objc_msgSend
+#include <objc/runtime.h>  // for sel_registerName
+
+/**
+ * Declared here rather than included. The real declaration lives in
+ * <gdk/quartz/gdkquartz-cocoa-access.h>, which returns NSWindow* and therefore only compiles in
+ * Objective-C. The pointer is opaque either way, and the ABI is identical.
+ */
+extern "C" void* gdk_quartz_window_get_nswindow(GdkWindow* window);
+#endif
+
 namespace xoj::util::gtk {
+
+void setFullScreenAuxiliary([[maybe_unused]] GtkWindow* w) {
+#ifdef GDK_WINDOWING_QUARTZ
+    // Realizing creates the native window this needs to reach; it puts nothing on screen. The
+    // collection behaviour has to be in place before the window is ordered in, because macOS
+    // decides then whether it is joining the space as a full-screen window of its own.
+    gtk_widget_realize(GTK_WIDGET(w));
+
+    GdkWindow* gdkWindow = gtk_widget_get_window(GTK_WIDGET(w));
+    if (gdkWindow == nullptr) {
+        return;
+    }
+
+    void* nsWindow = gdk_quartz_window_get_nswindow(gdkWindow);
+    if (nsWindow == nullptr) {
+        return;
+    }
+
+    // NSWindowCollectionBehaviorFullScreenPrimary and ...Auxiliary, plain integers rather than
+    // symbols we could link against from here.
+    constexpr unsigned long NS_COLLECTION_FULL_SCREEN_PRIMARY = 1UL << 7;
+    constexpr unsigned long NS_COLLECTION_FULL_SCREEN_AUXILIARY = 1UL << 8;
+
+    using GetBehaviorFn = unsigned long (*)(void*, SEL);
+    const unsigned long behavior =
+            reinterpret_cast<GetBehaviorFn>(objc_msgSend)(nsWindow, sel_registerName("collectionBehavior"));
+
+    using SetBehaviorFn = void (*)(void*, SEL, unsigned long);
+    reinterpret_cast<SetBehaviorFn>(objc_msgSend)(
+            nsWindow, sel_registerName("setCollectionBehavior:"),
+            (behavior & ~NS_COLLECTION_FULL_SCREEN_PRIMARY) | NS_COLLECTION_FULL_SCREEN_AUXILIARY);
+#endif
+}
 
 static GAction* findAction(GtkActionable* w) {
     const char* name = gtk_actionable_get_action_name(w);

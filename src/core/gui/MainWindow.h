@@ -77,6 +77,20 @@ public:
     void setMaximized(bool maximized);
     bool isMaximized() const;
 
+    /**
+     * Remember which monitor this window is on, and where it sits on that monitor, so that the
+     * next launch can come back to the same display. Called while the window still exists, from
+     * Control::saveSettings.
+     */
+    void saveWindowPosition();
+
+    /**
+     * Put the window back on the monitor it was last closed on. Does nothing when no monitor was
+     * remembered, or when the remembered monitor is not currently connected -- in both cases
+     * placement is left to GTK, which is the behaviour Xournal++ has always had.
+     */
+    void restoreWindowPosition();
+
     void setFullscreen(bool enabled) const;
 
     bool isDarkTheme() const;

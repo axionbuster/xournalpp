@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <atomic>    // for atomic
 #include <cstddef>   // for size_t
+#include <cstdint>   // for uint64_t
 #include <memory>    // for unique_ptr
 #include <optional>  // for optional
 #include <string>    // for string, allocator
@@ -41,6 +43,8 @@
 class LoadHandler;
 class GeometryToolController;
 class AudioController;
+class VideoRecorder;
+class ProjectorWindow;
 class FullscreenHandler;
 class Sidebar;
 class GladeSearchpath;
@@ -71,6 +75,10 @@ class XojFont;
 class XojPdfRectangle;
 class Callback;
 class ActionDatabase;
+
+namespace xoj::view {
+class ToolView;
+}
 class NavigationHistory;
 
 class Control:
@@ -172,6 +180,34 @@ public:
     void selectDefaultTool();
 
     void fontChanged(const XojFont& font);      ///< Set the font after the user selected a font
+
+    /**
+     * Apply font preset `index` (0-based): its font goes through the same path as the font
+     * dialog, its color is applied to text only — the text tool, the text being edited and
+     * the selected text elements. The tool currently held (e.g. the pen) keeps its color.
+     * A slot the user never saved is left alone: applying it does nothing at all.
+     * Font and color change together, as a single undo step.
+     */
+    void applyFontPreset(size_t index);
+
+    /**
+     * Store into font preset `index` (0-based) the font and color the user currently sees:
+     * those of the text element being edited, or else the default font and the text tool's color
+     */
+    void saveFontPreset(size_t index);
+
+    /**
+     * Apply `color` to text only: the text tool, the selected text elements and the text being
+     * edited. Returns the undo action for the selected elements (null if none were recolored);
+     * the caller decides whether to push it on its own or to group it.
+     */
+    UndoActionPtr applyTextColor(Color color);
+
+    /**
+     * The body of fontChanged(), returning the undo action for the selected elements instead of
+     * pushing it (null if no text element was in the selection)
+     */
+    UndoActionPtr changeFont(const XojFont& font);
 
     void updatePageNumbers(size_t page, size_t pdfPage);
 
@@ -318,6 +354,81 @@ public:
     Sidebar* getSidebar() const;
     SearchBar* getSearchBar() const;
     AudioController* getAudioController() const;
+    VideoRecorder* getVideoRecorder() const;
+
+    /**
+     * The projector window, created lazily the first time it is asked for. Never null.
+     *
+     * Callers on hot paths (RepaintHandler) want peekProjectorWindow instead, which returns null
+     * rather than bringing one into existence.
+     */
+    ProjectorWindow* getProjectorWindow();
+
+    /// The projector window if one has been created, otherwise null. Cheap; never allocates.
+    ProjectorWindow* peekProjectorWindow() const;
+
+    /// Show or hide the projector. Has no effect on any recording in progress, in either direction.
+    void setProjectorVisible(bool visible);
+
+    /**
+     * Start a recording: the sound file that strokes are timestamped against, the screen capture,
+     * or both, depending on the preferences.
+     *
+     * @param error filled with a user-facing reason when this returns false.
+     */
+    bool startRecording(std::string* error);
+
+    /// Stop whatever startRecording started. Returns true unless the recording could not be ended.
+    bool stopRecording();
+
+    bool isRecording() const;
+
+    /**
+     * When the recording in progress started, on g_get_monotonic_time()'s clock, or 0 when nothing
+     * is being recorded. Kept here rather than in the toolbar button so that a button built partway
+     * through a recording -- after the toolbars are reconfigured, say -- still shows the real
+     * elapsed time.
+     */
+    gint64 getRecordingStartTime() const;
+
+    /**
+     * How fast the video recording is really going, in frames per second, and the rate it is aiming
+     * for. Both 0 when no video is being recorded.
+     *
+     * Frames are drawn on this thread, so the first number falling below the second says the user
+     * interface is not keeping up -- with the pen as much as with the recording. That is worth
+     * having in front of you while there is still time to close something, which is why both the
+     * projector and the record button can show it. See VideoRecorder::getRenderRate.
+     */
+    double getVideoFrameRate() const;
+    int getVideoTargetFrameRate() const;
+
+    /// How fast frames are reaching the encoder. See VideoRecorder::getOutputRate.
+    double getVideoOutputFrameRate() const;
+
+    /**
+     * A counter that changes whenever the settled content of a page does -- a stroke finished, an
+     * undo, a background swapped, a layer hidden -- and stays put while a stroke is merely being
+     * drawn, since ink under the pen is an overlay and not yet part of any page.
+     *
+     * This is what lets the projector and the recorder draw a page once and keep the picture: both
+     * of them redraw many times a second, and re-rendering every stroke of a full page each time is
+     * what an hour-long recording cannot afford. See xoj::canvas::FrameCache.
+     */
+    std::uint64_t getCanvasRevision() const;
+
+    /// Say that the settled content of a page has changed. Cheap; safe from any thread.
+    void bumpCanvasRevision();
+
+    /**
+     * A tool view has just been drawn into the main view's page buffer -- a finished stroke,
+     * mostly. Patches the projector's and the recorder's kept pictures the same way, so the
+     * stroke never flickers out of them, then bumps the canvas revision so their background
+     * reconcile still runs. Called by XojPageView before the overlay is deleted.
+     */
+    void toolViewSettled(const PageRef& page, const xoj::view::ToolView* v);
+
+
     PageTypeHandler* getPageTypes() const;
     PageBackgroundChangeController* getPageBackgroundChangeController() const;
     LayerController* getLayerController() const;
@@ -384,6 +495,9 @@ protected:
     void eraserSizeChanged();
     void penSizeChanged();
     void highlighterSizeChanged();
+
+    /// Note that a recording has begun or ended: the elapsed-time clock and the stop button.
+    void recordingStateChanged(bool recording);
 
     static bool checkChangedDocument(Control* control);
     static bool autosaveCallback(Control* control);
@@ -571,4 +685,23 @@ private:
 
     // Keep after the ActionDatabase so it is destroyed first: ~AudioController refers to the ActionDatabase
     std::unique_ptr<AudioController> audioController;
+
+    /**
+     * Screen capture. Always present, even in a build without audio support: it runs an external
+     * ffmpeg process and shares nothing with the PortAudio pipeline.
+     */
+    std::unique_ptr<VideoRecorder> videoRecorder;
+
+    /// g_get_monotonic_time() at the moment the current recording started; 0 when idle.
+    gint64 recordingStartTime = 0;
+
+    /// See getCanvasRevision(). Atomic because a render job may finish on a worker thread.
+    std::atomic<std::uint64_t> canvasRevision{1};
+
+    /**
+     * Created the first time the projector is opened and then kept, so that closing and reopening
+     * it is instant and the remembered geometry is never lost mid-session. Destroyed before the
+     * ActionDatabase, whose state it updates when the window is closed from its title bar.
+     */
+    std::unique_ptr<ProjectorWindow> projectorWindow;
 };

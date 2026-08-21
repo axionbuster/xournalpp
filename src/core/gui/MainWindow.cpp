@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 
+#include <algorithm>  // for clamp, max
 #include <regex>
+#include <string>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for gdk_pixbuf_new_fr...
 #include <gdk/gdk.h>                // for gdk_screen_get_de...
@@ -55,8 +57,44 @@
 #undef Point
 #endif
 
+#ifdef GDK_WINDOWING_QUARTZ
+#include <objc/message.h>  // for objc_msgSend
+#include <objc/runtime.h>  // for objc_getClass, sel_registerName
+#endif
+
 using std::string;
 
+
+/**
+ * Stop the application from taking the keyboard when it starts. For automated testing only.
+ *
+ * Refusing focus at the window level is not enough on macOS: the application activates itself as it
+ * launches, becomes the frontmost application, and whatever the person at the keyboard was typing
+ * goes into the document under test. Demoting it to an accessory application is what actually
+ * settles it -- an accessory cannot become the active application at all, so keystrokes continue to
+ * go wherever they were going. It also drops the Dock icon and the menu bar, which is the point:
+ * this window is nobody's foreground application, it is a fixture.
+ */
+static void refuseApplicationActivation() {
+#ifdef GDK_WINDOWING_QUARTZ
+    Class nsApplication = objc_getClass("NSApplication");
+    if (nsApplication == nullptr) {
+        return;
+    }
+
+    using SharedFn = void* (*)(Class, SEL);
+    void* app = reinterpret_cast<SharedFn>(objc_msgSend)(nsApplication, sel_registerName("sharedApplication"));
+    if (app == nullptr) {
+        return;
+    }
+
+    constexpr long NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY = 1;
+
+    using SetPolicyFn = BOOL (*)(void*, SEL, long);
+    reinterpret_cast<SetPolicyFn>(objc_msgSend)(app, sel_registerName("setActivationPolicy:"),
+                                                NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY);
+#endif
+}
 
 static void themeCallback(GObject*, GParamSpec*, gpointer data) { static_cast<MainWindow*>(data)->updateColorscheme(); }
 
@@ -120,6 +158,17 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     g_signal_connect(this->window, "key-press-event", G_CALLBACK(keyPropagate), nullptr);
     g_signal_connect(this->window, "key-release-event", G_CALLBACK(keyPropagate), nullptr);
 
+    // An automated run opens a window on a desk somebody is working at. Without this it takes the
+    // keyboard as it maps, and whatever was being typed at that moment lands in the document under
+    // test -- which corrupts the run and, worse, the typing. Refusing focus outright is the only
+    // reliable version of "do not interrupt": a window that will not accept focus cannot receive a
+    // keystroke however it is raised.
+    if (g_getenv("XOPP_NO_FOCUS") != nullptr) {
+        gtk_window_set_focus_on_map(GTK_WINDOW(this->window), FALSE);
+        gtk_window_set_accept_focus(GTK_WINDOW(this->window), FALSE);
+        refuseApplicationActivation();
+    }
+
     updateScrollbarSidebarPosition();
 
     gtk_window_set_default_size(GTK_WINDOW(this->window), control->getSettings()->getMainWndWidth(),
@@ -134,6 +183,11 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     Util::execInUiThread([=]() {
         // Execute after the window is visible, else the check won't work
         control->setShowMenubar(control->getSettings()->isMenubarVisible());
+
+        // Queued before Control::initWindow defers presentation mode, so the window is moved onto
+        // its monitor BEFORE anything fullscreens it. The other order fullscreens it onto whatever
+        // display it happened to open on, and the move afterwards is then a no-op.
+        this->restoreWindowPosition();
     });
 
     // Drag and Drop
@@ -427,6 +481,15 @@ void MainWindow::updateScrollbarSidebarPosition() {
 
         ScrollbarHideType type = this->getControl()->getSettings()->getScrollbarHideType();
 
+        // No scrollbars in presentation mode, whatever the preference says. Free scrolling is
+        // already suppressed there (Layout::scrollAbs is a no-op), so the bar cannot do its job;
+        // what it can do is blink. GTK's overlay indicator fades in on EVERY pointer motion over
+        // the window -- no proximity test, pens included -- and its hide timer runs out during a
+        // sustained stroke, so writing makes the indicator flicker in and out over the page.
+        if (this->getControl()->getSettings()->isPresentationMode()) {
+            type = SCROLLBAR_HIDE_BOTH;
+        }
+
         bool scrollbarOnLeft = control->getSettings()->isScrollbarOnLeft();
         if (scrollbarOnLeft) {
             gtk_scrolled_window_set_placement(scrolledWindow, GTK_CORNER_TOP_RIGHT);
@@ -437,8 +500,14 @@ void MainWindow::updateScrollbarSidebarPosition() {
         gtk_widget_set_visible(gtk_scrolled_window_get_hscrollbar(scrolledWindow), !(type & SCROLLBAR_HIDE_HORIZONTAL));
         gtk_widget_set_visible(gtk_scrolled_window_get_vscrollbar(scrolledWindow), !(type & SCROLLBAR_HIDE_VERTICAL));
 
-        gtk_scrolled_window_set_overlay_scrolling(scrolledWindow,
-                                                  !control->getSettings()->isScrollbarFadeoutDisabled());
+
+        // Hiding the scrollbar widgets is not enough on its own to silence the overlay indicator:
+        // it is separate machinery, faded in from the scrolled window's own event handler on every
+        // pointer motion whether or not the bars themselves are visible. Turning overlay scrolling
+        // off is what removes the indicator entirely.
+        const bool overlayWanted =
+                !control->getSettings()->isScrollbarFadeoutDisabled() && type != SCROLLBAR_HIDE_BOTH;
+        gtk_scrolled_window_set_overlay_scrolling(scrolledWindow, overlayWanted);
     }
 
     // Part 2: update sidebar position
@@ -615,6 +684,97 @@ void MainWindow::setToolbarVisible(bool visible) {
 
 void MainWindow::setMenubarVisible(bool visible) {
     gtk_application_window_set_show_menubar(GTK_APPLICATION_WINDOW(this->getWindow()), visible);
+}
+
+/**
+ * The monitor a window is "on" is the one showing its top-left corner. Xournal++ is a single large
+ * window, so there is no interesting ambiguity here: gdk_display_get_monitor_at_window would pick
+ * the monitor with the largest overlap, which differs only while the window straddles a boundary,
+ * and a straddling window has no good answer anyway.
+ */
+void MainWindow::saveWindowPosition() {
+    GtkWindow* win = GTK_WINDOW(this->window);
+    if (win == nullptr || !gtk_widget_get_realized(GTK_WIDGET(win))) {
+        return;
+    }
+
+    // Deliberately not saved while fullscreen or in presentation mode: both report the geometry of
+    // the whole screen rather than of the window the user arranged, so saving then would overwrite
+    // a good remembered position with (0, 0). The monitor, however, is exactly what we want to keep
+    // in that case -- a board closed in presentation mode on the external display must come back on
+    // the external display.
+    GdkWindow* gdkWindow = gtk_widget_get_window(GTK_WIDGET(win));
+    if (gdkWindow == nullptr) {
+        return;
+    }
+
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(win));
+    GdkMonitor* monitor = gdk_display_get_monitor_at_window(display, gdkWindow);
+    if (monitor == nullptr) {
+        return;
+    }
+
+    GdkRectangle monitorGeometry{};
+    gdk_monitor_get_geometry(monitor, &monitorGeometry);
+
+    gint x = 0;
+    gint y = 0;
+    gtk_window_get_position(win, &x, &y);
+
+    Settings* settings = control->getSettings();
+    const std::string description = Settings::describeMonitor(monitor);
+
+    if (this->isMaximized() || settings->isPresentationMode() || settings->isFullscreen()) {
+        // Keep the monitor, keep the previously remembered offset on it.
+        settings->setMainWndPos(settings->getMainWndPosX(), settings->getMainWndPosY(), description);
+        return;
+    }
+
+    settings->setMainWndPos(x - monitorGeometry.x, y - monitorGeometry.y, description);
+}
+
+void MainWindow::restoreWindowPosition() {
+    Settings* settings = control->getSettings();
+    const std::string& wanted = settings->getMainWndMonitor();
+    if (wanted.empty()) {
+        return;
+    }
+
+    GtkWindow* win = GTK_WINDOW(this->window);
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(win));
+
+    GdkMonitor* match = nullptr;
+    const int nMonitors = gdk_display_get_n_monitors(display);
+    for (int i = 0; i < nMonitors; i++) {
+        GdkMonitor* candidate = gdk_display_get_monitor(display, i);
+        if (Settings::describeMonitor(candidate) == wanted) {
+            match = candidate;
+            break;
+        }
+    }
+
+    if (match == nullptr) {
+        // The remembered display is not plugged in. Placing the window at a remembered offset from
+        // a monitor that is not there would put it somewhere arbitrary, so leave it to GTK.
+        g_message("Main window: monitor \"%s\" is not connected, using default placement", wanted.c_str());
+        return;
+    }
+
+    GdkRectangle geometry{};
+    gdk_monitor_get_workarea(match, &geometry);
+
+    gint width = 0;
+    gint height = 0;
+    gtk_window_get_size(win, &width, &height);
+
+    // Clamp onto the monitor. A window remembered from a larger display must still land fully on
+    // this one, or it comes back partly offscreen and cannot be dragged back by its title bar.
+    const int maxX = geometry.x + std::max(0, geometry.width - width);
+    const int maxY = geometry.y + std::max(0, geometry.height - height);
+    const int x = std::clamp(geometry.x + settings->getMainWndPosX(), geometry.x, maxX);
+    const int y = std::clamp(geometry.y + settings->getMainWndPosY(), geometry.y, maxY);
+
+    gtk_window_move(win, x, y);
 }
 
 void MainWindow::setMaximized(bool maximized) { this->maximized = maximized; }

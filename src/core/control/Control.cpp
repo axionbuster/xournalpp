@@ -16,6 +16,7 @@
 #include "control/CompassController.h"                           // for Comp...
 #include "control/NavigationHistory.h"                           // for Navi...
 #include "control/RecentManager.h"                               // for Rece...
+#include "control/VideoRecorder.h"                               // for Vide...
 #include "control/ScrollHandler.h"                               // for Scro...
 #include "control/SetsquareController.h"                         // for Sets...
 #include "control/Tool.h"                                        // for Tool
@@ -43,6 +44,7 @@
 #include "gui/MainWindow.h"                                      // for Main...
 #include "gui/PageView.h"                                        // for XojP...
 #include "gui/PdfFloatingToolbox.h"                              // for PdfF...
+#include "gui/ProjectorWindow.h"                                 // for Proj...
 #include "gui/SearchBar.h"                                       // for Sear...
 #include "gui/XournalView.h"                                     // for Xour...
 #include "gui/XournalppCursor.h"                                 // for Xour...
@@ -88,6 +90,7 @@
 #include "plugin/PluginController.h"                             // for Plug...
 #include "settings/RecolorParameters.h"                          // for RecolorParameters
 #include "undo/AddUndoAction.h"                                  // for AddU...
+#include "undo/GroupUndoAction.h"                                // for Grou...
 #include "undo/InsertDeletePageUndoAction.h"                     // for Inse...
 #include "undo/InsertUndoAction.h"                               // for Inse...
 #include "undo/MoveSelectionToLayerUndoAction.h"                 // for Move...
@@ -144,6 +147,20 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
     }
 #endif
 
+    this->videoRecorder = std::make_unique<VideoRecorder>(*this);
+    this->videoRecorder->setUnexpectedExitCallback([this](const std::string& message) {
+        // ffmpeg gave up on its own. Bring the sound recording down with it so the two halves of a
+        // recording cannot drift apart, put the toolbar toggle back up, and say why.
+#ifdef ENABLE_AUDIO
+        if (this->audioController) {
+            this->audioController->stopRecording();
+        }
+#endif
+        this->actionDB->setActionState(Action::AUDIO_RECORD, false);
+        recordingStateChanged(false);
+        XojMsgBox::showErrorToUser(getGtkWindow(), message);
+    });
+
     this->scrollHandler = new ScrollHandler(this);
 
     this->scheduler = new XournalScheduler();
@@ -179,6 +196,13 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
 Control::~Control() {
     g_source_remove(this->changeTimout);
     this->enableAutosave(false);
+
+    // Before anything below deletes the Settings. The projector writes down where it was as it
+    // goes, and a member destroyed at the end of this function -- which is when a unique_ptr member
+    // would be -- would be writing into a Settings this destructor has already freed. That is a
+    // crash on quit and, worse, a silently forgotten window position every time the projector was
+    // left open.
+    this->projectorWindow.reset();
 
     deleteLastAutosaveFile();
     this->scheduler->stop();
@@ -283,6 +307,8 @@ void Control::saveSettings() {
     }
     this->settings->setMainWndMaximized(this->win->isMaximized());
 
+    this->win->saveWindowPosition();
+
     this->sidebar->saveSize();
 }
 
@@ -304,7 +330,15 @@ void Control::initWindow(MainWindow* win) {
     this->searchBar = new SearchBar(this);
 
     if (settings->isPresentationMode()) {
-        setViewPresentationMode(true);
+        // Deferred, unlike the layout calls below. setViewPresentationMode hides the
+        // toolbars/menubar and fullscreens the window, which needs the window to exist on screen
+        // first. Deferring also puts it AFTER MainWindow's own deferred restoreWindowPosition, so
+        // the window is moved onto its monitor before anything fullscreens it -- the other order
+        // fullscreens onto whichever display it happened to open on.
+        //
+        // Note this branch only became reachable once loading presentationMode from settings.xml
+        // was made to update activeViewMode too; see Settings::parseItem.
+        Util::execInUiThread([this]() { setViewPresentationMode(true); });
     } else if (settings->isViewFixedRows()) {
         setViewRows(settings->getViewRows());
     } else {
@@ -322,7 +356,19 @@ void Control::initWindow(MainWindow* win) {
     this->clipboardHandler = new ClipboardHandler(this, win->getXournal()->getWidget());
 
     this->enableAutosave(settings->isAutosaveEnabled());
+
+    if (settings->isProjectorOpenAtStartup()) {
+        // Deferred for the same reason the presentation-mode restore is: the projector places
+        // itself relative to a monitor, which needs the main window to be on screen first so that
+        // GDK can answer which monitors there are.
+        Util::execInUiThread([this]() {
+            this->actionDB->setActionState(Action::PROJECTOR_WINDOW, true);
+            setProjectorVisible(true);
+        });
+    }
+
 }
+
 
 auto Control::autosaveCallback(Control* control) -> bool {
     if (!control->undoRedo->isChangedAutosave()) {
@@ -1051,6 +1097,12 @@ void Control::setViewPresentationMode(bool enabled) {
     zoom->setZoomPresentationMode(enabled);
     settings->setPresentationMode(enabled);
 
+    // After setPresentationMode, which is what this reads: scrollbars are hidden in presentation
+    // mode and put back when it ends. See MainWindow::updateScrollbarSidebarPosition.
+    if (this->win != nullptr) {
+        this->win->updateScrollbarSidebarPosition();
+    }
+
     // Disable Zoom
     this->actionDB->enableAction(Action::ZOOM_IN, !enabled);
     this->actionDB->enableAction(Action::ZOOM_OUT, !enabled);
@@ -1189,6 +1241,8 @@ void Control::toolChanged() {
     this->actionDB->enableAction(Action::TOOL_DRAW_ELLIPSE, toolHandler->hasCapability(TOOL_CAP_ELLIPSE));
     this->actionDB->enableAction(Action::TOOL_DRAW_ARROW, toolHandler->hasCapability(TOOL_CAP_ARROW));
     this->actionDB->enableAction(Action::TOOL_DRAW_DOUBLE_ARROW, toolHandler->hasCapability(TOOL_CAP_DOUBLE_ARROW));
+    this->actionDB->enableAction(Action::TOOL_DRAW_RAY, toolHandler->hasCapability(TOOL_CAP_RAY));
+    this->actionDB->enableAction(Action::TOOL_DRAW_INFINITE_LINE, toolHandler->hasCapability(TOOL_CAP_INFINITE_LINE));
     this->actionDB->enableAction(Action::TOOL_DRAW_COORDINATE_SYSTEM, toolHandler->hasCapability(TOOL_CAP_ARROW));
     this->actionDB->enableAction(Action::TOOL_DRAW_SPLINE, toolHandler->hasCapability(TOOL_CAP_SPLINE));
     this->actionDB->enableAction(Action::TOOL_DRAW_SHAPE_RECOGNIZER, toolHandler->hasCapability(TOOL_CAP_RECOGNIZER));
@@ -1199,6 +1253,8 @@ void Control::toolChanged() {
     this->actionDB->setActionState(Action::TOOL_DRAW_ELLIPSE, dt == DRAWING_TYPE_ELLIPSE);
     this->actionDB->setActionState(Action::TOOL_DRAW_ARROW, dt == DRAWING_TYPE_ARROW);
     this->actionDB->setActionState(Action::TOOL_DRAW_DOUBLE_ARROW, dt == DRAWING_TYPE_DOUBLE_ARROW);
+    this->actionDB->setActionState(Action::TOOL_DRAW_RAY, dt == DRAWING_TYPE_RAY);
+    this->actionDB->setActionState(Action::TOOL_DRAW_INFINITE_LINE, dt == DRAWING_TYPE_INFINITE_LINE);
     this->actionDB->setActionState(Action::TOOL_DRAW_COORDINATE_SYSTEM, dt == DRAWING_TYPE_COORDINATE_SYSTEM);
     this->actionDB->setActionState(Action::TOOL_DRAW_SPLINE, dt == DRAWING_TYPE_SPLINE);
     this->actionDB->setActionState(Action::TOOL_DRAW_SHAPE_RECOGNIZER, dt == DRAWING_TYPE_SHAPE_RECOGNIZER);
@@ -2181,11 +2237,14 @@ void Control::quit(bool allowCancel) {
                 emergencySave();
             }
         } else {
-#ifdef ENABLE_AUDIO
-            if (audioController) {
-                audioController->stopRecording();
+            // Both halves, and before anything else: the screen capture has to be told to finish
+            // and flush, or the video file is left without its index and will not play.
+            stopRecording();
+
+            if (this->projectorWindow) {
+                this->projectorWindow->saveGeometry();
             }
-#endif
+
             this->scheduler->lock();
             this->scheduler->removeAllJobs();
             this->scheduler->unlock();
@@ -2607,18 +2666,110 @@ void Control::setToolSize(ToolSize size) {
     this->toolHandler->setSize(size);
 }
 
-void Control::fontChanged(const XojFont& font) {
+auto Control::changeFont(const XojFont& font) -> UndoActionPtr {
     settings->setFont(font);
 
+    UndoActionPtr undo;
     if (this->win) {
         if (EditSelection* sel = this->win->getXournal()->getSelection(); sel) {
-            undoRedo->addUndoAction(UndoActionPtr(sel->setFont(font)));
+            undo = sel->setFont(font);
         }
     }
 
     if (TextEditor* editor = getTextEditor(); editor) {
         editor->setFont(font);
     }
+
+    return undo;
+}
+
+void Control::fontChanged(const XojFont& font) { undoRedo->addUndoAction(changeFont(font)); }
+
+void Control::applyFontPreset(size_t index) {
+    const std::optional<FontPreset>& slot = settings->getFontPreset(index);
+    if (!slot) {
+        /*
+         * A slot the user never saved has nothing to apply. Falling back to the current default
+         * font and text color would not be a no-op: it would rewrite the font and the color of a
+         * selected text element or of the text being edited, which are not necessarily the
+         * defaults.
+         */
+        return;
+    }
+    const FontPreset& preset = *slot;
+
+    /*
+     * The same work the font dialog triggers -- the selected text elements, the text being
+     * edited and the default font for the next text element -- but with the resulting undo
+     * actions collected instead of pushed, so that font and color come back in one Ctrl+Z.
+     */
+    UndoActionPtr fontUndo = changeFont(preset.font);
+    // changeFont() bypasses the action, so the font button has to be told separately
+    this->actionDB->setActionState(Action::FONT, preset.font.asString().c_str());
+
+    UndoActionPtr colorUndo = applyTextColor(preset.color);
+
+    if (fontUndo && colorUndo) {
+        auto group = std::make_unique<GroupUndoAction>();
+        group->addAction(std::move(fontUndo));
+        group->addAction(std::move(colorUndo));
+        undoRedo->addUndoAction(std::move(group));
+    } else {
+        // At most one of them is non-null here; addUndoAction ignores a null action
+        undoRedo->addUndoAction(std::move(fontUndo));
+        undoRedo->addUndoAction(std::move(colorUndo));
+    }
+}
+
+void Control::saveFontPreset(size_t index) {
+    XojFont font = settings->getFont();
+    Color color = toolHandler->getTool(TOOL_TEXT).getColor();
+
+    if (TextEditor* editor = getTextEditor(); editor) {
+        /*
+         * While a text element is being edited, the font button and the canvas show that
+         * element's font and color, not the settings' defaults: entering an existing element
+         * adopts its font, and Ctrl+B / Ctrl+I / Ctrl+plus change it in place without touching
+         * the settings. Capture what the user actually sees.
+         */
+        const Text* text = editor->getTextElement();
+        font = text->getFont();
+        color = text->getColor();
+        color.alpha = 0xffU;  // text is drawn opaque; the stored alpha is not meaningful
+    }
+
+    settings->setFontPreset(index, FontPreset{font, color});
+}
+
+auto Control::applyTextColor(Color color) -> UndoActionPtr {
+    /*
+     * Only the text tool is recolored. Applying a font preset while the pen happens to be the
+     * held tool must leave the pen alone, so this deliberately does not go through
+     * ToolHandler::setColor (which targets whichever tool is active).
+     */
+    toolHandler->getTool(TOOL_TEXT).setColor(color);
+    if (toolHandler->getToolType() == TOOL_TEXT) {
+        /*
+         * The color buttons and the cursor show the active tool's color, but while a text
+         * element is being edited they were set to that element's color instead. So refresh
+         * them even when the tool's own color did not change, or they keep showing the color
+         * of the element as it was before.
+         */
+        toolColorChanged();
+    }
+
+    UndoActionPtr undo;
+    if (this->win) {
+        if (EditSelection* sel = this->win->getXournal()->getSelection(); sel) {
+            undo = sel->setTextColor(color);
+        }
+    }
+
+    if (TextEditor* editor = getTextEditor(); editor) {
+        editor->setColor(color);
+    }
+
+    return undo;
 }
 
 /**
@@ -2671,6 +2822,161 @@ auto Control::getSidebar() const -> Sidebar* { return this->sidebar; }
 auto Control::getSearchBar() const -> SearchBar* { return this->searchBar; }
 
 auto Control::getAudioController() const -> AudioController* { return this->audioController.get(); }
+
+auto Control::getVideoRecorder() const -> VideoRecorder* { return this->videoRecorder.get(); }
+
+auto Control::peekProjectorWindow() const -> ProjectorWindow* { return this->projectorWindow.get(); }
+
+auto Control::getProjectorWindow() -> ProjectorWindow* {
+    if (!this->projectorWindow) {
+        this->projectorWindow = std::make_unique<ProjectorWindow>(this);
+    }
+    return this->projectorWindow.get();
+}
+
+void Control::setProjectorVisible(bool visible) {
+    if (!visible && !this->projectorWindow) {
+        return;  // nothing to hide, and no reason to build a window in order to hide it
+    }
+
+    ProjectorWindow* projector = getProjectorWindow();
+    if (visible) {
+        projector->show();
+    } else {
+        projector->hide();
+    }
+}
+
+/*
+ * Recording
+ * ---------------------------------------------------------------------------------------------
+ * A recording is up to two things at once: the video of the canvas, and the sound file that strokes
+ * carry timestamps into. Which of them a press of the record button means is a preference, so it is
+ * decided here rather than in the action, and either part failing fails the whole thing -- a
+ * recording that is quietly missing half of what was asked for is worse than one that did not
+ * start.
+ */
+
+/**
+ * Bookkeeping shared by every way a recording can begin or end: the clock the toolbar button
+ * counts from, and the stop button, which is only reachable while there is something to stop.
+ */
+void Control::recordingStateChanged(bool recording) {
+    this->recordingStartTime = recording ? g_get_monotonic_time() : 0;
+    this->actionDB->enableAction(Action::AUDIO_STOP_PLAYBACK, recording);
+}
+
+auto Control::getRecordingStartTime() const -> gint64 { return this->recordingStartTime; }
+
+auto Control::getCanvasRevision() const -> std::uint64_t {
+    return this->canvasRevision.load(std::memory_order_relaxed);
+}
+
+void Control::bumpCanvasRevision() { this->canvasRevision.fetch_add(1, std::memory_order_relaxed); }
+
+void Control::toolViewSettled(const PageRef& page, const xoj::view::ToolView* v) {
+    if (this->videoRecorder) {
+        this->videoRecorder->onToolViewSettled(page, v);
+    }
+    if (this->projectorWindow) {
+        this->projectorWindow->onToolViewSettled(page, v);
+    }
+    bumpCanvasRevision();
+}
+
+auto Control::startRecording(std::string* error) -> bool {
+    if (isRecording()) {
+        return false;
+    }
+
+    const bool wantVideo = this->settings->isVideoRecordingEnabled();
+    // Without the video there is nothing else a recording could be, so the sound file is always
+    // written in that case, whatever the "keep the audio file" preference says.
+    const bool wantAudioFile = !wantVideo || this->settings->isVideoRecordingKeepAudioFile();
+
+    bool audioStarted = false;
+#ifdef ENABLE_AUDIO
+    if (wantAudioFile && this->audioController) {
+        audioStarted = this->audioController->startRecording();
+        if (!audioStarted) {
+            // AudioController has already told the user if the folder was the problem.
+            if (error != nullptr) {
+                *error = _("The audio recorder could not be started.");
+            }
+            return false;
+        }
+    }
+#else
+    if (wantAudioFile && !wantVideo) {
+        if (error != nullptr) {
+            *error = _("Audio support was disabled when this copy of Xournal++ was built.");
+        }
+        return false;
+    }
+#endif
+
+    if (wantVideo) {
+        std::string videoError;
+        const fs::path output = this->videoRecorder->buildOutputPath(&videoError);
+        const bool videoStarted = !output.empty() && this->videoRecorder->start(output, &videoError);
+
+        if (!videoStarted) {
+#ifdef ENABLE_AUDIO
+            if (audioStarted) {
+                this->audioController->stopRecording();
+            }
+#endif
+            if (error != nullptr) {
+                *error = videoError;
+            }
+            return false;
+        }
+        recordingStateChanged(true);
+        return true;
+    }
+
+    if (audioStarted) {
+        recordingStateChanged(true);
+    }
+    return audioStarted;
+}
+
+auto Control::stopRecording() -> bool {
+    if (this->videoRecorder->isRecording()) {
+        this->videoRecorder->stop();
+    }
+#ifdef ENABLE_AUDIO
+    if (this->audioController) {
+        this->audioController->stopRecording();
+    }
+#endif
+    recordingStateChanged(false);
+    return true;
+}
+
+auto Control::isRecording() const -> bool {
+    if (this->videoRecorder && this->videoRecorder->isRecording()) {
+        return true;
+    }
+#ifdef ENABLE_AUDIO
+    if (this->audioController) {
+        return this->audioController->isRecording();
+    }
+#endif
+    return false;
+}
+
+auto Control::getVideoFrameRate() const -> double {
+    return this->videoRecorder ? this->videoRecorder->getRenderRate() : 0.0;
+}
+
+auto Control::getVideoTargetFrameRate() const -> int {
+    return this->videoRecorder ? this->videoRecorder->getTargetRate() : 0;
+}
+
+auto Control::getVideoOutputFrameRate() const -> double {
+    return this->videoRecorder ? this->videoRecorder->getOutputRate() : 0.0;
+}
 
 auto Control::getPageTypes() const -> PageTypeHandler* { return this->pageTypes; }
 

@@ -43,7 +43,19 @@
 struct Palette;
 
 constexpr auto DEFAULT_GRID_SIZE = 14.17;
+/// Overshoot of the ray/infinite line drawing types, in page units (30/72 inch, about 10.6 mm)
+constexpr auto DEFAULT_EXTENDED_LINE_OVERSHOOT = 30.0;
 constexpr unsigned int MAX_SPACES_FOR_TAB = 8U;
+/// Number of font preset slots (see Settings::getFontPreset)
+constexpr size_t FONT_PRESET_COUNT = 4;
+
+/**
+ * One font preset slot: the font and the text color that applying the preset installs.
+ */
+struct FontPreset {
+    XojFont font;
+    Color color;
+};
 
 class ButtonConfig;
 class InputDevice;
@@ -161,6 +173,14 @@ public:
     void setFont(const XojFont& font);
 
     /**
+     * Font presets. `index` is 0-based and must be smaller than FONT_PRESET_COUNT.
+     * An empty slot means "never saved"; the caller then falls back to the current
+     * font and the text tool's color.
+     */
+    const std::optional<FontPreset>& getFontPreset(size_t index) const;
+    void setFontPreset(size_t index, const FontPreset& preset);
+
+    /**
      * The selected Toolbar
      */
     void setSelectedToolbar(const std::string& name);
@@ -220,6 +240,26 @@ public:
     int getMainWndWidth() const;
     int getMainWndHeight() const;
     bool isMainWndMaximized() const;
+
+    /**
+     * Position of the main window relative to the origin of the monitor it was on, together with
+     * that monitor's description.
+     *
+     * The monitor is what is really being remembered here, and it is remembered by description
+     * rather than by index because indices are reassigned when displays are plugged in or
+     * rearranged. The position is only honoured again when a monitor matching that description is
+     * actually connected; otherwise placement is left to GTK. See MainWindow::restoreWindowPosition.
+     */
+    void setMainWndPos(int x, int y, const std::string& monitor);
+
+    /**
+     * Stable, human-readable description of a monitor -- manufacturer and model where the backend
+     * exposes them, falling back to geometry. Used as the identity that survives a reconnect.
+     */
+    static std::string describeMonitor(GdkMonitor* monitor);
+    int getMainWndPosX() const;
+    int getMainWndPosY() const;
+    const std::string& getMainWndMonitor() const;
 
     bool isFullscreen() const;
 
@@ -337,6 +377,9 @@ public:
     double getStrokeRecognizerMinSize() const;
     void setStrokeRecognizerMinSize(double value);
 
+    double getExtendedLineOvershoot() const;
+    void setExtendedLineOvershoot(double value);
+
     StylusCursorType getStylusCursorType() const;
     void setStylusCursorType(StylusCursorType stylusCursorType);
 
@@ -423,10 +466,14 @@ public:
     PageTemplateSettings const& getPageTemplateSettings() const;
     void setPageTemplateSettings(const PageTemplateSettings& pageTemplateSettings);
 
-#ifdef ENABLE_AUDIO
+    /**
+     * Folder holding the sound files strokes are timestamped into. Outside the audio guard because
+     * the screen recorder falls back to it when no separate video folder is set.
+     */
     fs::path const& getAudioFolder() const;
     void setAudioFolder(fs::path audioFolder);
 
+#ifdef ENABLE_AUDIO
     static constexpr PaDeviceIndex AUDIO_INPUT_SYSTEM_DEFAULT = -1;
     PaDeviceIndex getAudioInputDevice() const;
     void setAudioInputDevice(PaDeviceIndex deviceIndex);
@@ -444,6 +491,172 @@ public:
     unsigned int getDefaultSeekTime() const;
     void setDefaultSeekTime(unsigned int t);
 #endif
+
+    // ---------------------------------------------------------------------------------------
+    // Video recording
+    //
+    // What is recorded is the canvas, drawn from the document model at the output resolution --
+    // never the screen. The encoder is an external ffmpeg process; the microphone is the existing
+    // PortAudio pipeline, so those settings live under Audio Recording and are not repeated here.
+    // ---------------------------------------------------------------------------------------
+
+    /// Record a video of the canvas when the record button is pressed.
+    bool isVideoRecordingEnabled() const;
+    void setVideoRecordingEnabled(bool enabled);
+
+    /// Record the microphone into that video.
+    bool isVideoRecordingWithAudio() const;
+    void setVideoRecordingWithAudio(bool withAudio);
+
+    /**
+     * Also write the separate sound file that strokes are timestamped against.
+     *
+     * Off by default: it is a second file for a feature -- replaying the audio that was being
+     * recorded while a given stroke was drawn -- that has nothing to do with wanting a video, and
+     * an unasked-for .ogg turning up beside every recording is a surprise. Turning it on costs
+     * nothing extra at the microphone; the same capture feeds both.
+     */
+    bool isVideoRecordingKeepAudioFile() const;
+    void setVideoRecordingKeepAudioFile(bool keep);
+
+    /// Where finished videos are written. Empty falls back to the audio folder.
+    fs::path const& getVideoFolder() const;
+    void setVideoFolder(fs::path videoFolder);
+
+    /// Explicit ffmpeg binary; empty means "look on PATH and in the usual package prefixes".
+    std::string const& getVideoRecordingFfmpegPath() const;
+    void setVideoRecordingFfmpegPath(std::string path);
+
+    int getVideoRecordingWidth() const;
+    int getVideoRecordingHeight() const;
+    void setVideoRecordingSize(int width, int height);
+
+    int getVideoRecordingFps() const;
+    void setVideoRecordingFps(int fps);
+
+    /// Video bitrate in kbit/s.
+    int getVideoRecordingVideoBitrate() const;
+    void setVideoRecordingVideoBitrate(int kbits);
+
+    /// Audio bitrate in kbit/s.
+    int getVideoRecordingAudioBitrate() const;
+    void setVideoRecordingAudioBitrate(int kbits);
+
+    /// An ffmpeg encoder name, e.g. "h264_videotoolbox" or "libx264".
+    std::string const& getVideoRecordingVideoCodec() const;
+    void setVideoRecordingVideoCodec(std::string codec);
+
+    std::string const& getVideoRecordingAudioCodec() const;
+    void setVideoRecordingAudioCodec(std::string codec);
+
+    /// Container extension without the dot: "mov", "mp4" or "mkv".
+    std::string const& getVideoRecordingContainer() const;
+    void setVideoRecordingContainer(std::string container);
+
+    /// Extra ffmpeg arguments, appended last so they override everything derived from settings.
+    std::string const& getVideoRecordingExtraArguments() const;
+    void setVideoRecordingExtraArguments(std::string arguments);
+
+    // ---------------------------------------------------------------------------------------
+    // Microphone processing
+    //
+    // The chain a streaming setup puts between a microphone and a recording: compressor,
+    // equalizer, noise suppression. Named and scaled the way OBS names and scales them, so a
+    // setting copied from one to the other means the same thing. Applied by ffmpeg on its way
+    // into the video, in that order, and never to the separate .ogg -- see AudioFilterConfig.
+    // ---------------------------------------------------------------------------------------
+
+    bool isMicCompressorEnabled() const;
+    void setMicCompressorEnabled(bool enabled);
+
+    /// Level above which the compressor starts working, in dB.
+    double getMicCompressorThreshold() const;
+    void setMicCompressorThreshold(double dB);
+
+    /// How much quieter than the input a signal above the threshold gets, as "n:1".
+    double getMicCompressorRatio() const;
+    void setMicCompressorRatio(double ratio);
+
+    /// Attack and release, in milliseconds.
+    double getMicCompressorAttack() const;
+    void setMicCompressorAttack(double ms);
+    double getMicCompressorRelease() const;
+    void setMicCompressorRelease(double ms);
+
+    /// Gain applied after compressing, in dB, to make up for what the compressor took away.
+    double getMicCompressorOutputGain() const;
+    void setMicCompressorOutputGain(double dB);
+
+    bool isMicEqualizerEnabled() const;
+    void setMicEqualizerEnabled(bool enabled);
+
+    /// Gains of the three bands, in dB. The crossovers are fixed -- see AudioFilterConfig.
+    double getMicEqualizerLow() const;
+    void setMicEqualizerLow(double dB);
+    double getMicEqualizerMid() const;
+    void setMicEqualizerMid(double dB);
+    double getMicEqualizerHigh() const;
+    void setMicEqualizerHigh(double dB);
+
+    /// One of "off", "rnnoise" or "fft"; anything else is read as "off".
+    std::string const& getMicNoiseSuppression() const;
+    void setMicNoiseSuppression(std::string method);
+
+    /// An .rnnn model for the RNNoise method. Empty means the one shipped with the application.
+    std::string const& getMicRnnoiseModel() const;
+    void setMicRnnoiseModel(std::string path);
+
+    // ---------------------------------------------------------------------------------------
+    // Projector window
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Where the projector was when it was last closed: position relative to the origin of
+     * getProjectorMonitor(), plus its size. Remembered by monitor description for the same reason
+     * the main window is -- see setMainWndPos.
+     */
+    void setProjectorGeometry(int x, int y, int width, int height, const std::string& monitor);
+    int getProjectorPosX() const;
+    int getProjectorPosY() const;
+    int getProjectorWidth() const;
+    int getProjectorHeight() const;
+    std::string const& getProjectorMonitor() const;
+
+    bool isProjectorKeepAbove() const;
+    void setProjectorKeepAbove(bool keepAbove);
+
+    /// Open the projector automatically at startup, on the display it was last closed on.
+    bool isProjectorOpenAtStartup() const;
+    void setProjectorOpenAtStartup(bool open);
+
+    /// Constrain the projector's shape to the recording's aspect ratio while it is resized.
+    bool isProjectorLockAspectRatio() const;
+    void setProjectorLockAspectRatio(bool lock);
+
+    /// Draw a translucent band where burnt-in captions would sit.
+    bool isProjectorShowSafeArea() const;
+    void setProjectorShowSafeArea(bool show);
+
+    /**
+     * Height of that band, in pixels of the recording's own frame -- so 150 against a 1080-line
+     * recording marks the bottom 150 lines of the finished video, which is how a subtitling
+     * requirement is normally written down. The projector scales it to whatever size it is at.
+     */
+    int getProjectorSafeAreaHeight() const;
+    void setProjectorSafeAreaHeight(int pixels);
+
+    Color getProjectorBackgroundColor() const;
+    void setProjectorBackgroundColor(Color color);
+
+    /**
+     * Show the frame rate in the projector window and next to the record button.
+     *
+     * Never in the recording itself -- it is drawn over the projector's own picture, after the
+     * frame the encoder is given has already been made, so what is on screen for the presenter
+     * differs from the file by exactly this one readout.
+     */
+    bool isShowFrameRate() const;
+    void setShowFrameRate(bool show);
 
     std::string const& getPluginEnabled() const;
     void setPluginEnabled(const std::string& pluginEnabled);
@@ -789,6 +1002,12 @@ private:
     XojFont font;
 
     /**
+     * The font presets, stored as `fontPreset1` .. `fontPreset4` properties.
+     * An unset slot has never been saved by the user.
+     */
+    std::array<std::optional<FontPreset>, FONT_PRESET_COUNT> fontPresets;
+
+    /**
      * Base speed (as a percentage of visible canvas) of edge pan per
      * second
      */
@@ -834,6 +1053,21 @@ private:
      * Height of the main window
      */
     int mainWndHeight{};
+
+    /**
+     * Position of the main window RELATIVE TO THE ORIGIN OF mainWndMonitor, not in root
+     * coordinates. The monitor is the anchor: root coordinates only keep their meaning while the
+     * display arrangement is unchanged, so a window remembered at x=1440 lands on the built-in
+     * display as soon as the external one is plugged in on the other side.
+     */
+    int mainWndPosX{};
+    int mainWndPosY{};
+
+    /**
+     * Description of the monitor the main window was last on, as built by
+     * Settings::describeMonitor. Empty when unknown.
+     */
+    std::string mainWndMonitor{};
 
     /**
      * Show the scrollbar on the left side
@@ -1067,6 +1301,13 @@ private:
      */
     double strokeRecognizerMinSize{};
 
+    /**
+     * How far (in page units) the ray and infinite line drawing types overshoot the dragged
+     * endpoints before their arrow head. There is no preferences dialog entry for this: edit
+     * the extendedLineOvershoot property in settings.xml to change it.
+     */
+    double extendedLineOvershoot{};
+
     /// Touchscreens act like multi-touch-aware pens.
     bool touchDrawing{};
 
@@ -1106,6 +1347,66 @@ private:
      */
     unsigned int defaultSeekTime{};
 #endif
+
+    /**
+     * Video recording. Names match the settings.xml keys one-for-one, and the defaults are the
+     * ones a 1080p60 lecture capture wants: see Settings::loadDefault.
+     */
+    /// Where finished videos are written; empty falls back to the audio folder.
+    fs::path videoFolder;
+
+    bool videoRecordingEnabled{};
+    bool videoRecordingWithAudio{};
+    bool videoRecordingKeepAudioFile{};
+
+    std::string videoRecordingFfmpegPath;
+    int videoRecordingWidth{};
+    int videoRecordingHeight{};
+    int videoRecordingFps{};
+    int videoRecordingVideoBitrate{};
+    int videoRecordingAudioBitrate{};
+    std::string videoRecordingVideoCodec;
+    std::string videoRecordingAudioCodec;
+    std::string videoRecordingContainer;
+    std::string videoRecordingExtraArguments;
+
+    /**
+     * Microphone processing. Units are OBS's: dB for levels and gains, milliseconds for times,
+     * a plain number for the compression ratio.
+     */
+    bool micCompressorEnabled{};
+    double micCompressorThreshold{};
+    double micCompressorRatio{};
+    double micCompressorAttack{};
+    double micCompressorRelease{};
+    double micCompressorOutputGain{};
+
+    bool micEqualizerEnabled{};
+    double micEqualizerLow{};
+    double micEqualizerMid{};
+    double micEqualizerHigh{};
+
+    std::string micNoiseSuppression;
+    std::string micRnnoiseModel;
+
+    /**
+     * Projector window placement, stored the same way as the main window's: an offset from the
+     * origin of a monitor identified by description, not a root coordinate.
+     */
+    int projectorPosX{};
+    int projectorPosY{};
+    int projectorWidth{};
+    int projectorHeight{};
+    std::string projectorMonitor;
+    bool projectorKeepAbove{};
+    bool projectorOpenAtStartup{};
+    bool projectorLockAspectRatio{};
+    bool projectorShowSafeArea{};
+    int projectorSafeAreaHeight{};
+    Color projectorBackgroundColor{};
+
+    /// See isShowFrameRate().
+    bool showFrameRate{};
 
     /**
      * List of enabled plugins (only the one which are not enabled by default)

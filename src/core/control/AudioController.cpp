@@ -76,7 +76,7 @@ auto AudioController::stopRecording() -> bool {
     return true;
 }
 
-auto AudioController::isRecording() -> bool { return this->audioRecorder->isRecording(); }
+auto AudioController::isRecording() const -> bool { return this->audioRecorder->isRecording(); }
 
 auto AudioController::isPlaying() -> bool { return this->audioPlayer->isPlaying(); }
 

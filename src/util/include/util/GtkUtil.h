@@ -34,6 +34,25 @@ void setWidgetFollowActionEnabled(GtkWidget* w, GAction* a);
  */
 std::optional<double> getWidgetDPI(GtkWidget* w);
 
+/**
+ * @brief Let a popup share a full-screen window's space without becoming full screen itself.
+ *
+ * macOS gives a window opened over a full-screen one the option of taking the whole space, and a
+ * plain resizable GtkWindow qualifies. A dialog that does so is full screen in its own right, so
+ * closing it makes AppKit run the exit-full-screen transition -- and that transition re-frames a
+ * window GTK has already begun destroying, which segfaults inside GDK's quartz backend. The
+ * application does not die outright, because the crash handler catches the signal; it stays on
+ * screen as a black rectangle that answers no input. That is what "the app went black after I
+ * clicked Cancel in preferences" was.
+ *
+ * Marking the window as an auxiliary occupant of the space keeps it a floating dialog over the
+ * page, which is what a preferences window should look like anyway, and leaves no transition to
+ * run when it closes. Call it before the window is shown.
+ *
+ * A no-op everywhere but macOS.
+ */
+void setFullScreenAuxiliary(GtkWindow* w);
+
 #if GTK_MAJOR_VERSION == 3
 /**
  * @brief RadioButton's and GAction don't work as expected in GTK3:

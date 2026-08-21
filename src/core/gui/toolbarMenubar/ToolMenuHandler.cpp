@@ -34,6 +34,7 @@
 #include "FontButton.h"                  // for FontButton
 #include "PluginPlaceholderLabel.h"      // for PluginPlaceholderLabel
 #include "PluginToolButton.h"            // for PluginToolButton
+#include "RecordButton.h"                // for RecordButton
 #include "SeparatorItem.h"
 #include "SpacerItem.h"
 #include "StylePopoverFactory.h"     // for ToolButtonWithStylePopover
@@ -110,9 +111,18 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
             for (const ToolbarItem& dataItem: e.getItems()) {
                 std::string name = dataItem.getName();
 
+                // The playback controls genuinely need the audio system. The record button no
+                // longer does: with audio unavailable it still records a video, which is encoded
+                // by a separate ffmpeg process. Neither does Stop, which ends a recording as
+                // readily as it ends a playback.
+                const bool recordingPossible = this->control->getAudioController() != nullptr ||
+                                               this->control->getSettings()->isVideoRecordingEnabled();
                 if (!this->control->getAudioController() &&
-                    (name == "AUDIO_RECORDING" || name == "AUDIO_SEEK_BACKWARDS" || name == "AUDIO_PAUSE_PLAYBACK" ||
-                     name == "AUDIO_STOP_PLAYBACK" || name == "AUDIO_SEEK_FORWARDS" || name == "PLAY_OBJECT")) {
+                    (name == "AUDIO_SEEK_BACKWARDS" || name == "AUDIO_PAUSE_PLAYBACK" ||
+                     name == "AUDIO_SEEK_FORWARDS" || name == "PLAY_OBJECT")) {
+                    continue;
+                }
+                if (!recordingPossible && (name == "AUDIO_RECORDING" || name == "AUDIO_STOP_PLAYBACK")) {
                     continue;
                 }
 
@@ -421,6 +431,9 @@ void ToolMenuHandler::initToolItems() {
                          _("Draw Double Arrow"));
     emplaceCustomItemTgl("DRAW_COORDINATE_SYSTEM", Cat::TOOLS, Action::TOOL_DRAW_COORDINATE_SYSTEM,
                          "draw-coordinate-system", _("Draw Coordinate System"));
+    emplaceCustomItemTgl("DRAW_RAY", Cat::TOOLS, Action::TOOL_DRAW_RAY, "draw-ray", _("Draw Ray"));
+    emplaceCustomItemTgl("DRAW_INFINITE_LINE", Cat::TOOLS, Action::TOOL_DRAW_INFINITE_LINE, "draw-infinite-line",
+                         _("Draw Infinite Line"));
     emplaceCustomItemTgl("RULER", Cat::TOOLS, Action::TOOL_DRAW_LINE, "draw-line", _("Draw Line"));
     emplaceCustomItemTgl("DRAW_SPLINE", Cat::TOOLS, Action::TOOL_DRAW_SPLINE, "draw-spline", _("Draw Spline"));
 
@@ -443,6 +456,10 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("HAND", Cat::SELECTION, Action::SELECT_TOOL, TOOL_HAND, "hand", _("Hand"));
 
     emplaceItem<FontButton>("SELECT_FONT", *control->getActionDatabase());
+    emplaceCustomItem("FONT_PRESET_1", Cat::TOOLS, Action::FONT_PRESET_1, "font-preset-1", _("Font preset 1"));
+    emplaceCustomItem("FONT_PRESET_2", Cat::TOOLS, Action::FONT_PRESET_2, "font-preset-2", _("Font preset 2"));
+    emplaceCustomItem("FONT_PRESET_3", Cat::TOOLS, Action::FONT_PRESET_3, "font-preset-3", _("Font preset 3"));
+    emplaceCustomItem("FONT_PRESET_4", Cat::TOOLS, Action::FONT_PRESET_4, "font-preset-4", _("Font preset 4"));
     emplaceStockItemTgl("FORMAT_JUSTIFY", Cat::TOOLS, Action::TEXT_JUSTIFY, "format-justify-fill", _("Justify text"));
     emplaceStockItemWithTarget("FORMAT_ALIGN_LEFT", Cat::TOOLS, Action::TEXT_ALIGNMENT, TextAlignment::LEFT,
                                "format-justify-left", _("Align text to the left"));
@@ -451,8 +468,12 @@ void ToolMenuHandler::initToolItems() {
     emplaceStockItemWithTarget("FORMAT_ALIGN_RIGHT", Cat::TOOLS, Action::TEXT_ALIGNMENT, TextAlignment::RIGHT,
                                "format-justify-right", _("Align text to the right"));
 
-    emplaceCustomItemTgl("AUDIO_RECORDING", Cat::AUDIO, Action::AUDIO_RECORD, "audio-record",
-                         _("Record Audio / Stop Recording"));
+    emplaceItem<RecordButton>("AUDIO_RECORDING", Cat::AUDIO, Action::AUDIO_RECORD, iconName("audio-record"),
+                              _("Start / Stop Recording"), control);
+    // Kept in the same category as the recording controls because that is where people look for
+    // it, even though opening and closing it has no effect on a recording.
+    emplaceStockItemTgl("PROJECTOR", Cat::AUDIO, Action::PROJECTOR_WINDOW, "video-display-symbolic",
+                        _("Show / Hide Projector Window"));
     emplaceCustomItemTgl("AUDIO_PAUSE_PLAYBACK", Cat::AUDIO, Action::AUDIO_PAUSE_PLAYBACK, "audio-playback-pause",
                          _("Pause / Play"));
     emplaceCustomItem("AUDIO_STOP_PLAYBACK", Cat::AUDIO, Action::AUDIO_STOP_PLAYBACK, "audio-playback-stop", _("Stop"));

@@ -225,3 +225,31 @@ image.flying-icon.TL {
 image.flying-icon.TR {
     border-radius: 50% 50% 50% 0%;
 }
+
+/*
+ * The record button while a recording is running. Toolbars are wide and a pressed-in toggle is
+ * easy to miss across one, so this deliberately does not look like the rest of the toolbar: red
+ * is the one colour that reads as "live" without a label saying so.
+ */
+button.xopp-recording {
+    background-image: none;
+    background-color: #c0392b;
+    border-color: #a5342a;
+    color: #ffffff;
+    animation: xopp-recording-pulse 2s ease-in-out infinite;
+}
+
+button.xopp-recording:hover {
+    background-color: #d0483a;
+}
+
+button.xopp-recording image,
+button.xopp-recording label {
+    color: #ffffff;
+}
+
+@keyframes xopp-recording-pulse {
+    0%   { background-color: #c0392b; }
+    50%  { background-color: #9c2d21; }
+    100% { background-color: #c0392b; }
+}

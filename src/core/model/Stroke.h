@@ -11,14 +11,18 @@
 
 #pragma once
 
-#include <array>    // for array
-#include <cstddef>  // for size_t
-#include <memory>   // for unique_ptr
-#include <vector>   // for vector
+#include <array>     // for array
+#include <cstddef>   // for size_t
+#include <memory>    // for unique_ptr
+#include <optional>  // for optional
+#include <vector>    // for vector
+
+#include <cairo.h>  // for cairo_matrix_t
 
 #include "model/Element.h"
 
 #include "AudioElement.h"  // for AudioElement
+#include "LineShape.h"     // for LineShape
 #include "LineStyle.h"     // for LineStyle
 #include "Point.h"         // for Point
 
@@ -144,6 +148,9 @@ public:
 private:
     void setPointVectorInternal(const Range* const snappingBox);
 
+    /// Apply a transform to the line shape anchors, if there are any
+    void transformLineShapeAnchors(const cairo_matrix_t* matrix);
+
 public:
     void deletePointsFrom(size_t index);
 
@@ -202,6 +209,19 @@ public:
     StrokeCapStyle getStrokeCapStyle() const;
     void setStrokeCapStyle(const StrokeCapStyle capStyle);
 
+    /**
+     * @brief The line shape this stroke was drawn as, if it was drawn by one of the line shape
+     * tools (ray, infinite line, arrow, double arrow).
+     *
+     * Absent on every other stroke. The metadata lets the shape tools grab an end of an
+     * already drawn shape and drag it; it is transformed along with the stroke, but a partial
+     * copy of the stroke (an erased fragment, say) drops it, since its geometry no longer
+     * matches the recorded anchors.
+     */
+    const std::optional<LineShape>& getLineShape() const;
+    void setLineShape(const LineShape& shape);
+    void clearLineShape();
+
     [[maybe_unused]] void debugPrint() const;
 
 public:
@@ -239,4 +259,9 @@ private:
     int fill = -1;
 
     StrokeCapStyle capStyle = StrokeCapStyle::ROUND;
+
+    /**
+     * Set only on strokes drawn by the line shape tools. See getLineShape().
+     */
+    std::optional<LineShape> lineShape;
 };

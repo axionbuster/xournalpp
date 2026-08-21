@@ -615,6 +615,8 @@ struct ActionPropDrawingTypes {
         actionDB->setActionState(Action::TOOL_DRAW_COORDINATE_SYSTEM, false);
         actionDB->setActionState(Action::TOOL_DRAW_LINE, false);
         actionDB->setActionState(Action::TOOL_DRAW_SPLINE, false);
+        actionDB->setActionState(Action::TOOL_DRAW_RAY, false);
+        actionDB->setActionState(Action::TOOL_DRAW_INFINITE_LINE, false);
 
         g_simple_action_set_state(ga, p);
         bool enabled = g_variant_get_boolean(p);
@@ -639,6 +641,10 @@ template <>
 struct ActionProperties<Action::TOOL_DRAW_LINE>: ActionPropDrawingTypes<DRAWING_TYPE_LINE> {};
 template <>
 struct ActionProperties<Action::TOOL_DRAW_SPLINE>: ActionPropDrawingTypes<DRAWING_TYPE_SPLINE> {};
+template <>
+struct ActionProperties<Action::TOOL_DRAW_RAY>: ActionPropDrawingTypes<DRAWING_TYPE_RAY> {};
+template <>
+struct ActionProperties<Action::TOOL_DRAW_INFINITE_LINE>: ActionPropDrawingTypes<DRAWING_TYPE_INFINITE_LINE> {};
 
 template <>
 struct ActionProperties<Action::SETSQUARE> {
@@ -798,6 +804,64 @@ struct ActionProperties<Action::FONT> {
     }
 };
 
+/**
+ * Font presets. FONT_PRESET_k applies slot k, SAVE_FONT_PRESET_k overwrites it with the current
+ * font and the text tool's color. Both are stateless — the slots live in the Settings.
+ *
+ * The apply accelerators are registered twice on purpose. Depending on the keyboard layout,
+ * Shift+<digit> reaches GTK either as the digit with Shift still unconsumed (matching
+ * "<Ctrl><Shift>1") or as the shifted symbol with Shift consumed (matching "<Ctrl>exclam"), so
+ * both spellings are listed. On a layout where the shifted symbol differs, only the first
+ * spelling applies, which is the intended combination anyway.
+ */
+#ifdef __APPLE__
+#define FONT_PRESET_ACCELS(digit, symbol) \
+    static constexpr const char* accelerators[] = {"<Meta><Shift>" #digit, "<Meta>" #symbol, nullptr}
+#else
+#define FONT_PRESET_ACCELS(digit, symbol) \
+    static constexpr const char* accelerators[] = {"<Ctrl><Shift>" #digit, "<Ctrl>" #symbol, nullptr}
+#endif
+
+template <>
+struct ActionProperties<Action::FONT_PRESET_1> {
+    FONT_PRESET_ACCELS(1, exclam);
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->applyFontPreset(0); }
+};
+template <>
+struct ActionProperties<Action::FONT_PRESET_2> {
+    FONT_PRESET_ACCELS(2, at);
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->applyFontPreset(1); }
+};
+template <>
+struct ActionProperties<Action::FONT_PRESET_3> {
+    FONT_PRESET_ACCELS(3, numbersign);
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->applyFontPreset(2); }
+};
+template <>
+struct ActionProperties<Action::FONT_PRESET_4> {
+    FONT_PRESET_ACCELS(4, dollar);
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->applyFontPreset(3); }
+};
+
+#undef FONT_PRESET_ACCELS
+
+template <>
+struct ActionProperties<Action::SAVE_FONT_PRESET_1> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->saveFontPreset(0); }
+};
+template <>
+struct ActionProperties<Action::SAVE_FONT_PRESET_2> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->saveFontPreset(1); }
+};
+template <>
+struct ActionProperties<Action::SAVE_FONT_PRESET_3> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->saveFontPreset(2); }
+};
+template <>
+struct ActionProperties<Action::SAVE_FONT_PRESET_4> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->saveFontPreset(3); }
+};
+
 template <>
 struct ActionProperties<Action::TEXT_ALIGNMENT> {
     using state_type = TextAlignment::Value;
@@ -832,30 +896,21 @@ struct ActionProperties<Action::AUDIO_RECORD> {
     using state_type = bool;
     static constexpr state_type initialState(Control*) { return false; }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
-#ifdef ENABLE_AUDIO
-        if (!ctrl->audioController) {
-            g_warning("Audio has been disabled");
-            return;
-        }
+        // Control coordinates the whole recording -- the sound file the strokes are linked to and
+        // the screen capture, in whichever combination the preferences ask for -- so that this one
+        // toggle keeps meaning "record", whatever a recording currently consists of.
         bool enabled = g_variant_get_boolean(p);
-        bool success = false;
-        if (enabled) {
-            success = ctrl->getAudioController()->startRecording();
-        } else {
-            success = ctrl->getAudioController()->stopRecording();
-        }
+        std::string error;
+        bool success = enabled ? ctrl->startRecording(&error) : ctrl->stopRecording();
 
         if (success) {
             g_simple_action_set_state(ga, p);
         } else {
             g_simple_action_set_state(ga, g_variant_new_boolean(!enabled));
-            Util::execInUiThread([win = ctrl->getGtkWindow()]() {
-                XojMsgBox::showErrorToUser(win, _("Recorder could not be started."));
+            Util::execInUiThread([win = ctrl->getGtkWindow(), error]() {
+                XojMsgBox::showErrorToUser(win, error.empty() ? _("Recorder could not be started.") : error);
             });
         }
-#else
-        g_warning("Audio has been disabled at compile time");
-#endif
     }
 };
 template <>
@@ -918,6 +973,15 @@ template <>
 struct ActionProperties<Action::AUDIO_STOP_PLAYBACK> {
     static constexpr bool initiallyEnabled(Control*) { return false; }
     static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
+        // The stop button sits next to the record button, so during a recording that is plainly
+        // what it is for -- and a button that does nothing at the one moment the user reaches for
+        // it is worse than no button. Playback and recording never overlap, so there is nothing to
+        // choose between here.
+        if (ctrl->isRecording()) {
+            ctrl->stopRecording();
+            ctrl->getActionDatabase()->setActionState(Action::AUDIO_RECORD, false);
+            return;
+        }
 #ifdef ENABLE_AUDIO
         if (!ctrl->audioController) {
             g_warning("Audio has been disabled");
@@ -1135,5 +1199,15 @@ struct ActionProperties<Action::POSITION_HIGHLIGHTING> {
         g_simple_action_set_state(ga, p);
         bool enable = g_variant_get_boolean(p);
         ctrl->getSettings()->setHighlightPosition(enable);
+    }
+};
+
+template <>
+struct ActionProperties<Action::PROJECTOR_WINDOW> {
+    using state_type = bool;
+    static constexpr state_type initialState(Control*) { return false; }
+    static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        g_simple_action_set_state(ga, p);
+        ctrl->setProjectorVisible(g_variant_get_boolean(p));
     }
 };

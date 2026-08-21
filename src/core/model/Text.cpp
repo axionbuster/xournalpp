@@ -14,6 +14,7 @@
 #include "util/Stacktrace.h"      // for Stacktrace
 #include "util/StringUtils.h"
 #include "util/raii/GObjectSPtr.h"
+#include "util/raii/PangoSPtr.h"  // for PangoAttrListSPtr
 #include "util/safe_casts.h"                      // for round_cast
 #include "util/serializing/ObjectInputStream.h"   // for ObjectInputStream
 #include "util/serializing/ObjectOutputStream.h"  // for ObjectOutputStream
@@ -31,6 +32,7 @@ auto Text::cloneText() const -> std::unique_ptr<Text> {
     auto text = std::make_unique<Text>();
     text->font = this->font;
     text->text = this->text;
+    text->styleRuns = this->styleRuns;
     text->setColor(this->getColor());
     text->boundingBox = this->boundingBox;
     text->cloneAudioData(this);
@@ -62,7 +64,22 @@ auto Text::getText() const -> const std::string& { return this->text; }
 
 void Text::setText(std::string text) {
     this->text = std::move(text);
+    // Whatever the runs described, they now describe a different string; keep them inside it
+    xoj::text::alignStyleRunsToText(this->styleRuns, this->text);
     sizeCalculated = false;
+}
+
+auto Text::getStyleRuns() const -> const TextStyleRuns& { return this->styleRuns; }
+
+void Text::setStyleRuns(TextStyleRuns runs) {
+    this->styleRuns = std::move(runs);
+    xoj::text::normalizeStyleRuns(this->styleRuns);
+    /*
+     * The runs are the element's own, so they must fit the element's own text — both setters
+     * enforce it, and the invariant then holds whichever of the two is called last.
+     */
+    xoj::text::alignStyleRunsToText(this->styleRuns, this->text);
+    sizeCalculated = false;  // Bold and italic runs change the text's extents
 }
 
 void Text::setWrap(double wrap) {
@@ -138,6 +155,7 @@ auto Text::createPangoLayout() const -> xoj::util::GObjectSPtr<PangoLayout> {
 #endif
 
     updatePangoFont(layout.get());
+    updatePangoAttributes(layout.get());
 
     return layout;
 }
@@ -148,6 +166,23 @@ void Text::updatePangoFont(PangoLayout* layout) const {
 
     pango_layout_set_font_description(layout, desc);
     pango_font_description_free(desc);
+}
+
+void Text::updatePangoAttributes(PangoLayout* layout) const {
+    if (this->styleRuns.empty()) {
+        // An unstyled element leaves the layout exactly as stock Xournal++ leaves it
+        pango_layout_set_attributes(layout, nullptr);
+        return;
+    }
+
+    /*
+     * Every consumer of a text element goes through createPangoLayout: the canvas, the PDF and
+     * image exports, calcSize and findText. So attaching the runs here is all it takes for the
+     * styling to show up everywhere, and for the extents to account for it.
+     */
+    xoj::util::PangoAttrListSPtr attrs(pango_attr_list_new(), xoj::util::adopt);
+    xoj::text::appendStyleRunAttributes(attrs.get(), this->styleRuns);
+    pango_layout_set_attributes(layout, attrs.get());
 }
 
 void Text::scale(double x0, double y0, double fx, double fy, double rotation,
@@ -194,6 +229,27 @@ void Text::serialize(ObjectOutputStream& out) const {
     out.writeInt(static_cast<int>(this->align));
     out.writeInt(this->justify);
 
+    /*
+     * Optional inline style runs, appended after every field a stock Xournal++ build writes. An
+     * unstyled element writes nothing at all here, so its blob is byte-identical to a stock one
+     * and still pastes into a stock build running alongside this fork. A styled element is a
+     * fork-only construct, and pasting one into a stock build does not work.
+     */
+    if (!this->styleRuns.empty()) {
+        // Bold and italic are tri-state: -1 leaves the element's font in charge, 0 and 1 override it
+        auto encode = [](const std::optional<bool>& flag) { return flag ? (*flag ? 1 : 0) : -1; };
+
+        out.writeSizeT(this->styleRuns.size());
+        for (const auto& run: this->styleRuns) {
+            out.writeSizeT(run.start);
+            out.writeSizeT(run.end);
+            out.writeInt(encode(run.bold));
+            out.writeInt(encode(run.italic));
+            out.writeInt(run.color.has_value());
+            out.writeUInt(run.color ? static_cast<uint32_t>(*run.color) : 0U);
+        }
+    }
+
     out.endObject();
 }
 
@@ -210,6 +266,37 @@ void Text::readSerialized(ObjectInputStream& in) {
     this->align = static_cast<TextAlignment::Value>(in.readInt());
     this->align.validate();
     this->justify = in.readInt() != 0;
+
+    // Optional inline style runs: absent both from an unstyled element and from a blob written
+    // by a stock Xournal++ build, which ends the object right here.
+    this->styleRuns.clear();
+    if (!in.atEndOfObject()) {
+        /*
+         * The count comes off the wire, so nothing is reserved on the strength of it: the vector
+         * grows as runs are actually read, and a count larger than the blob holds runs out of
+         * data and throws instead of asking for the memory it claims to need.
+         */
+        const size_t count = in.readSizeT();
+        auto decode = [](int encoded) {
+            return encoded < 0 ? std::optional<bool>{} : std::optional<bool>{encoded != 0};
+        };
+
+        for (size_t i = 0; i < count; i++) {
+            TextStyleRun run;
+            run.start = in.readSizeT();
+            run.end = in.readSizeT();
+            run.bold = decode(in.readInt());
+            run.italic = decode(in.readInt());
+            const bool hasColor = in.readInt() != 0;
+            const auto color = Color(in.readUInt());
+            if (hasColor) {
+                run.color = color;
+            }
+            this->styleRuns.push_back(run);
+        }
+        xoj::text::normalizeStyleRuns(this->styleRuns);
+        xoj::text::alignStyleRunsToText(this->styleRuns, this->text);
+    }
 
     in.endObject();
 }

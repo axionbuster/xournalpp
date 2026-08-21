@@ -25,6 +25,7 @@
 #include "ButtonConfigGui.h"
 #include "LanguageConfigGui.h"
 #include "LatexSettingsPanel.h"
+#include "RecordingSettingsPanel.h"
 #include "SettingsDialogPaletteTab.h"
 #include "config-features.h"  // for ENABLE_AUDIO
 #include "filesystem.h"       // for path
@@ -99,6 +100,7 @@ private:
     std::vector<std::unique_ptr<ButtonConfigGui>> buttonConfigs;
 
     LatexSettingsPanel latexPanel;
+    RecordingSettingsPanel recordingPanel;
     SettingsDialogPaletteTab paletteTab;
 
     std::function<void()> callback;

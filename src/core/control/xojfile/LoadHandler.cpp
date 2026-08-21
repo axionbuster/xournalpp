@@ -36,6 +36,7 @@
 #include "model/Stroke.h"               // for Stroke, StrokeCapStyle
 #include "model/TexImage.h"             // for TexImage
 #include "model/Text.h"                 // for Text
+#include "model/TextStyleRuns.h"        // for TextStyleRuns
 #include "model/XojPage.h"              // for XojPage
 #include "util/Assert.h"                // for xoj_assert
 #include "util/Color.h"                 // for Color
@@ -316,6 +317,11 @@ void LoadHandler::addStroke(StrokeTool tool, Color color, double width, int fill
     setAudioAttributes(*this->stroke, std::move(filename), timestamp);
 }
 
+void LoadHandler::setStrokeLineShape(const LineShape& shape) {
+    xoj_assert(this->stroke);
+    this->stroke->setLineShape(shape);
+}
+
 void LoadHandler::setStrokePoints(std::vector<Point> pointVector, bool hasPressure) {
     // Check if stroke still exists or has already been assigned points.
     // In corrupt files, this function may be called more than once, and the
@@ -354,6 +360,7 @@ void LoadHandler::addText(std::string font, double size, double x, double y, Col
                           std::optional<TextAlignment> align, bool justify, fs::path filename, size_t timestamp) {
     xoj_assert(!this->text);
     this->text = std::make_unique<Text>();
+    this->textStyleRuns.clear();
 
     XojFont& f = this->text->getFont();
     f.setName(std::move(font));
@@ -367,6 +374,13 @@ void LoadHandler::addText(std::string font, double size, double x, double y, Col
     setAudioAttributes(*this->text, std::move(filename), timestamp);
 }
 
+void LoadHandler::setTextStyleRuns(TextStyleRuns runs) {
+    xoj_assert(this->text);
+
+    // Held until finalizeText(): a Text vets its runs against its own text, which is not read yet
+    this->textStyleRuns = std::move(runs);
+}
+
 void LoadHandler::setTextContents(std::string contents) {
     xoj_assert(this->text);
 
@@ -375,6 +389,15 @@ void LoadHandler::setTextContents(std::string contents) {
 
 void LoadHandler::finalizeText() {
     xoj_assert(this->text);
+
+    /*
+     * Now that the text is known, the runs can be checked against it: a hand-edited file may
+     * point them past its end or into the middle of a character, and Text::setStyleRuns cuts
+     * both back rather than handing a bad offset to Pango or to the editor's text buffer.
+     */
+    if (!this->textStyleRuns.empty()) {
+        this->text->setStyleRuns(std::exchange(this->textStyleRuns, {}));
+    }
 
     this->layer->addElement(std::move(this->text));
 }

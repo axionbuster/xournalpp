@@ -29,10 +29,12 @@
 #include "control/layer/LayerController.h"          // for LayerControl
 #include "control/settings/Settings.h"              // for Settings
 #include "control/tools/ArrowHandler.h"             // for ArrowHandler
+#include "control/tools/BaseShapeHandler.h"         // for BaseShapeHandler
 #include "control/tools/CoordinateSystemHandler.h"  // for CoordinateSystemH...
 #include "control/tools/EditSelection.h"            // for EditSelection
 #include "control/tools/EllipseHandler.h"           // for EllipseHandler
 #include "control/tools/EraseHandler.h"             // for EraseHandler
+#include "control/tools/ExtendedLineHandler.h"      // for ExtendedLineHandler
 #include "control/tools/ImageHandler.h"             // for ImageHandler
 #include "control/tools/ImageSizeSelection.h"       // for ImageSizeSelection
 #include "control/tools/InputHandler.h"             // for InputHandler
@@ -54,7 +56,9 @@
 #include "gui/scroll/ScrollHandling.h"              // for ScrollHandling
 #include "model/Document.h"                         // for Document
 #include "model/Element.h"                          // for Element, ELEMENT_...
+#include "model/ElementInsertionPosition.h"         // for InsertionPosition
 #include "model/Layer.h"                            // for Layer, Layer::Index
+#include "model/LineShape.h"                        // for LineShape, LineShapeType
 #include "model/LinkDestination.h"                  // for LinkDestination
 #include "model/PageRef.h"                          // for PageRef
 #include "model/Stroke.h"                           // for Stroke
@@ -97,6 +101,29 @@ class OverlayBase;
 
 using std::string;
 using xoj::util::Rectangle;
+
+namespace {
+/// The drawing types whose strokes carry line shape metadata, and whose ends can be dragged
+bool isLineShapeDrawingType(DrawingType type) {
+    return type == DRAWING_TYPE_ARROW || type == DRAWING_TYPE_DOUBLE_ARROW || type == DRAWING_TYPE_RAY ||
+           type == DRAWING_TYPE_INFINITE_LINE;
+}
+
+/// The handler that draws a given kind of line shape
+std::unique_ptr<BaseShapeHandler> makeLineShapeHandler(LineShapeType type, Control* control, const PageRef& page) {
+    switch (type) {
+        case LineShapeType::RAY:
+            return std::make_unique<ExtendedLineHandler>(control, page, false);
+        case LineShapeType::INFINITE_LINE:
+            return std::make_unique<ExtendedLineHandler>(control, page, true);
+        case LineShapeType::DOUBLE_ARROW:
+            return std::make_unique<ArrowHandler>(control, page, true);
+        case LineShapeType::ARROW:
+        default:
+            return std::make_unique<ArrowHandler>(control, page, false);
+    }
+}
+}  // namespace
 
 XojPageView::XojPageView(XournalView* xournal, const PageRef& page):
         page(page),
@@ -270,27 +297,66 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
         }
 
         Control* control = this->xournal->getControl();
-        switch (h->getDrawingType()) {
-            case DRAWING_TYPE_LINE:
-                this->inputHandler = std::make_unique<RulerHandler>(control, getPage());
-                break;
-            case DRAWING_TYPE_RECTANGLE:
-                this->inputHandler = std::make_unique<RectangleHandler>(control, getPage());
-                break;
-            case DRAWING_TYPE_ELLIPSE:
-                this->inputHandler = std::make_unique<EllipseHandler>(control, getPage());
-                break;
-            case DRAWING_TYPE_ARROW:
-                this->inputHandler = std::make_unique<ArrowHandler>(control, getPage(), false);
-                break;
-            case DRAWING_TYPE_DOUBLE_ARROW:
-                this->inputHandler = std::make_unique<ArrowHandler>(control, getPage(), true);
-                break;
-            case DRAWING_TYPE_COORDINATE_SYSTEM:
-                this->inputHandler = std::make_unique<CoordinateSystemHandler>(control, getPage());
-                break;
-            default:
-                this->inputHandler = std::make_unique<StrokeHandler>(control, getPage());
+
+        // Draggable arrow heads: with one of the line shape tools held, a press landing on an
+        // end of an already drawn line shape stroke re-edits that stroke instead of starting a
+        // new one. Which handler that takes comes from the STROKE's metadata, not from the tool
+        // in hand, so an arrow stays an arrow even when the ray tool is the one held.
+        //
+        // Holding Control suppresses the grab, which is the only way to start a shape whose end
+        // coincides with an existing one — two rays from a common vertex, the usual way to draw
+        // an angle. Control is free here: none of the shape handlers read it.
+        Layer* selectedLayer = page->getSelectedLayer();
+        std::optional<xoj::lineshape::Grab> grab;
+        if ((h->getToolType() == TOOL_PEN || h->getToolType() == TOOL_HIGHLIGHTER) &&
+            isLineShapeDrawingType(h->getDrawingType()) && !pos.isControlDown()) {
+            grab = xoj::lineshape::findGrab(selectedLayer, Point(x, y));
+        }
+
+        if (grab) {
+            auto handler = makeLineShapeHandler(grab->stroke->getLineShape()->type, control, getPage());
+
+            Element* original = grab->stroke;
+            Document* doc = control->getDocument();
+            doc->lock();
+            InsertionPosition removed = selectedLayer->removeElement(original);
+            doc->unlock();
+            // The stroke leaves the layer for the duration of the drag, with no undo entry:
+            // either the release records a single action swapping it for the replacement, or the
+            // handler puts it back untouched.
+            page->fireElementChanged(original);
+
+            handler->grabExistingStroke(selectedLayer, std::move(removed), grab->anchor);
+            this->inputHandler = std::move(handler);
+        } else {
+            switch (h->getDrawingType()) {
+                case DRAWING_TYPE_LINE:
+                    this->inputHandler = std::make_unique<RulerHandler>(control, getPage());
+                    break;
+                case DRAWING_TYPE_RECTANGLE:
+                    this->inputHandler = std::make_unique<RectangleHandler>(control, getPage());
+                    break;
+                case DRAWING_TYPE_ELLIPSE:
+                    this->inputHandler = std::make_unique<EllipseHandler>(control, getPage());
+                    break;
+                case DRAWING_TYPE_ARROW:
+                    this->inputHandler = std::make_unique<ArrowHandler>(control, getPage(), false);
+                    break;
+                case DRAWING_TYPE_DOUBLE_ARROW:
+                    this->inputHandler = std::make_unique<ArrowHandler>(control, getPage(), true);
+                    break;
+                case DRAWING_TYPE_RAY:
+                    this->inputHandler = std::make_unique<ExtendedLineHandler>(control, getPage(), false);
+                    break;
+                case DRAWING_TYPE_INFINITE_LINE:
+                    this->inputHandler = std::make_unique<ExtendedLineHandler>(control, getPage(), true);
+                    break;
+                case DRAWING_TYPE_COORDINATE_SYSTEM:
+                    this->inputHandler = std::make_unique<CoordinateSystemHandler>(control, getPage());
+                    break;
+                default:
+                    this->inputHandler = std::make_unique<StrokeHandler>(control, getPage());
+            }
         }
         this->inputHandler->onButtonPressEvent(pos, zoom);
         this->overlayViews.emplace_back(this->inputHandler->createView(this));
@@ -853,6 +919,11 @@ auto XojPageView::onKeyReleaseEvent(const KeyEvent& event) -> bool {
 void XojPageView::rerenderPage(bool sizeChanged) {
     this->rerenderComplete = true;
     this->sizeChanged = sizeChanged;
+    // Everything that changes a page without a stroke being drawn arrives here -- an undo, a
+    // background swap, a layer hidden -- and none of it passes through RepaintHandler, because the
+    // render job repaints the widget directly when it finishes. Saying so here is what keeps the
+    // projector and the recording in step with an undo instead of a beat behind it.
+    this->xournal->getControl()->bumpCanvasRevision();
     this->xournal->getControl()->getScheduler()->addRerenderPage(this);
 }
 
@@ -869,12 +940,23 @@ void XojPageView::flagDirtyRegion(const Range& rg) const { repaintArea(rg.minX, 
 void XojPageView::drawAndDeleteToolView(xoj::view::ToolView* v, const Range& rg) {
     if (v->isViewOf(this->inputHandler.get()) || v->isViewOf(this->verticalSpace.get()) ||
         v->isViewOf(this->textEditor.get())) {
-        // Draw the inputHandler's view onto the page buffer.
-        std::lock_guard lock(this->drawingMutex);
-        if (auto cr = buffer.get(); cr) {
-            v->drawWithoutDrawingAids(cr);
-        } else {
-            rerenderPage();
+        bool drewIntoBuffer = false;
+        {
+            // Draw the inputHandler's view onto the page buffer.
+            std::lock_guard lock(this->drawingMutex);
+            if (auto cr = buffer.get(); cr) {
+                v->drawWithoutDrawingAids(cr);
+                drewIntoBuffer = true;
+            } else {
+                rerenderPage();
+            }
+        }
+        if (drewIntoBuffer) {
+            // The stroke stopped being an overlay and became part of the page without any
+            // re-render being asked for. Anyone keeping a picture of the page -- the projector,
+            // the video recorder -- must be told the same way this view's own buffer was, and
+            // before deleteOverlayView() below takes the overlay out of their next frame.
+            this->xournal->getControl()->toolViewSettled(this->page, v);
         }
     }
     this->deleteOverlayView(v, rg);
@@ -912,6 +994,8 @@ auto XojPageView::toWidgetCoordinates(const xoj::util::Rectangle<double>& r) con
 }
 
 void XojPageView::rerenderRect(double x, double y, double width, double height) {
+    this->xournal->getControl()->bumpCanvasRevision();
+
     if (this->rerenderComplete) {
         return;
     }
@@ -1119,6 +1203,13 @@ auto XojPageView::paintPage(cairo_t* cr, GdkRectangle* rect) -> bool {
     }
 
     return true;
+}
+
+auto XojPageView::drawOverlays(cairo_t* cr) const -> size_t {
+    for (const auto& v: this->overlayViews) {
+        v->draw(cr);
+    }
+    return this->overlayViews.size();
 }
 
 /**

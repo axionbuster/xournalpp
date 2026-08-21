@@ -89,6 +89,19 @@ auto ObjectInputStream::getNextObjectName() -> std::string {
 
 void ObjectInputStream::endObject() { checkType('}'); }
 
+auto ObjectInputStream::atEndOfObject() -> bool {
+    if (getSize(istream) < 2) {
+        return false;
+    }
+
+    const auto position = istream.tellg();
+    char underscore = 0, type = 0;
+    istream >> underscore >> type;
+    istream.seekg(position);
+
+    return underscore == '_' && type == '}';
+}
+
 auto ObjectInputStream::readInt() -> int {
     checkType('i');
     return readType<int>();

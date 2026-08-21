@@ -1,6 +1,7 @@
 #include "control/xojfile/XmlParser.h"
 
 #include <algorithm>    // for all_of
+#include <array>        // for array
 #include <cctype>       // for isspace
 #include <cstddef>      // for size_t
 #include <ranges>       // for all_of, reverse_view
@@ -18,10 +19,12 @@
 #include "control/xojfile/XmlAttrs.h"                  // for XmlAttrs
 #include "control/xojfile/XmlParserHelper.h"           // for getAttrib...
 #include "control/xojfile/XmlTags.h"                   // for XmlTags
+#include "model/LineShape.h"                           // for LineShape, LineShapeType
 #include "model/PageType.h"                            // for PageType
 #include "model/Point.h"                               // for Point
 #include "model/Stroke.h"                              // for StrokeTool, StrokeCapStyle
 #include "model/TextAlignment.h"                       // for TextAlignment
+#include "model/TextStyleRuns.h"                       // for parseStyleRuns
 #include "util/Assert.h"                               // for xoj_assert
 #include "util/Color.h"                                // for Color
 #include "util/EnumIndexedArray.h"                     // for EnumIndexedArray
@@ -377,6 +380,29 @@ void XmlParser::parseStrokeTag(const XmlParserHelper::AttributeMap& attributeMap
     this->builder.addStroke(tool, color, width, fill, capStyle, lineStyle, std::move(this->tempFilename),
                             this->tempTimestamp);
 
+    // line shape metadata (fork-only; see the comment on SHAPE_STR in XmlAttrs.h)
+    if (const auto shapeType = XmlParserHelper::getAttrib<LineShapeType>(xoj::xml_attrs::SHAPE_STR, attributeMap)) {
+        if (const auto anchorsSV =
+                    XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::ANCHORS_STR, attributeMap)) {
+            auto ait = anchorsSV->data();
+            const auto aend = anchorsSV->data() + anchorsSV->size();
+            std::array<double, 4> anchors{};
+            size_t count = 0;
+            while (count < anchors.size() && parseDouble(ait, aend, anchors[count])) {
+                count++;
+            }
+            if (count == anchors.size()) {
+                this->builder.setStrokeLineShape(
+                        LineShape{*shapeType, Point(anchors[0], anchors[1]), Point(anchors[2], anchors[3])});
+            } else {
+                this->builder.logError(_("Found a shaped stroke whose \"anchors\" attribute does not hold four "
+                                         "coordinates. Discarding the shape"));
+            }
+        } else {
+            this->builder.logError(_("Found a shaped stroke without an \"anchors\" attribute. Discarding the shape"));
+        }
+    }
+
     // Reset timestamp, filename was already moved from
     this->tempTimestamp = 0;
 }
@@ -443,6 +469,17 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
 
     this->builder.addText(std::string{font}, size, x, y, color, wrap, align, justify, std::move(tempFilename),
                           tempTimestamp);
+
+    // inline style runs (fork-only; see the comment on RUNS_STR in XmlAttrs.h)
+    if (const auto runsSV = XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::RUNS_STR, attributeMap)) {
+        if (auto runs = xoj::text::parseStyleRuns(*runsSV)) {
+            this->builder.setTextStyleRuns(std::move(*runs));
+        } else {
+            this->builder.logError(FS(_F("Found a text whose \"runs\" attribute is malformed: \"{1}\". "
+                                         "Loading the text without its styling") %
+                                      StringUtils::ellipsize(*runsSV)));
+        }
+    }
 
     this->tempTimestamp = 0;
 }

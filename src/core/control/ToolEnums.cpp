@@ -104,12 +104,14 @@ static constexpr auto makeToolCaps() {
     std::array<std::underlying_type_t<ToolCapabilities>, TOOL_COUNT> caps;
 
     caps[TOOL_PEN - TOOL_PEN] = TOOL_CAP_COLOR | TOOL_CAP_SIZE | TOOL_CAP_RULER | TOOL_CAP_RECTANGLE |
-                                TOOL_CAP_ELLIPSE | TOOL_CAP_ARROW | TOOL_CAP_DOUBLE_ARROW | TOOL_CAP_SPLINE |
-                                TOOL_CAP_RECOGNIZER | TOOL_CAP_FILL | TOOL_CAP_LINE_STYLE;
+                                TOOL_CAP_ELLIPSE | TOOL_CAP_ARROW | TOOL_CAP_DOUBLE_ARROW | TOOL_CAP_RAY |
+                                TOOL_CAP_INFINITE_LINE | TOOL_CAP_SPLINE | TOOL_CAP_RECOGNIZER | TOOL_CAP_FILL |
+                                TOOL_CAP_LINE_STYLE;
     caps[TOOL_ERASER - TOOL_PEN] = TOOL_CAP_SIZE;
     caps[TOOL_HIGHLIGHTER - TOOL_PEN] = TOOL_CAP_COLOR | TOOL_CAP_SIZE | TOOL_CAP_RULER | TOOL_CAP_RECTANGLE |
-                                        TOOL_CAP_ELLIPSE | TOOL_CAP_ARROW | TOOL_CAP_DOUBLE_ARROW | TOOL_CAP_SPLINE |
-                                        TOOL_CAP_RECOGNIZER | TOOL_CAP_FILL;
+                                        TOOL_CAP_ELLIPSE | TOOL_CAP_ARROW | TOOL_CAP_DOUBLE_ARROW | TOOL_CAP_RAY |
+                                        TOOL_CAP_INFINITE_LINE | TOOL_CAP_SPLINE | TOOL_CAP_RECOGNIZER |
+                                        TOOL_CAP_FILL;
     caps[TOOL_TEXT - TOOL_PEN] = TOOL_CAP_COLOR | TOOL_CAP_ALIGN | TOOL_CAP_JUSTIFY;
     caps[TOOL_IMAGE - TOOL_PEN] = TOOL_CAP_NONE;
     caps[TOOL_SELECT_RECT - TOOL_PEN] = TOOL_CAP_NONE;
@@ -124,6 +126,8 @@ static constexpr auto makeToolCaps() {
     caps[TOOL_DRAW_ELLIPSE - TOOL_PEN] = TOOL_CAP_NONE;
     caps[TOOL_DRAW_ARROW - TOOL_PEN] = TOOL_CAP_NONE;
     caps[TOOL_DRAW_DOUBLE_ARROW - TOOL_PEN] = TOOL_CAP_NONE;
+    caps[TOOL_DRAW_RAY - TOOL_PEN] = TOOL_CAP_NONE;
+    caps[TOOL_DRAW_INFINITE_LINE - TOOL_PEN] = TOOL_CAP_NONE;
     caps[TOOL_DRAW_COORDINATE_SYSTEM - TOOL_PEN] = TOOL_CAP_NONE;
     caps[TOOL_DRAW_SPLINE - TOOL_PEN] = TOOL_CAP_NONE;
     caps[TOOL_FLOATING_TOOLBOX - TOOL_PEN] = TOOL_CAP_NONE;

@@ -30,7 +30,9 @@ class Document;
 class Layer;
 class OutputStream;
 class Stroke;
+class Text;
 class XmlAudioNode;
+class XmlTextNode;
 
 class SaveHandler {
 public:
@@ -52,6 +54,23 @@ public:
 
     const std::string& getErrorMessage();
 
+    /// The file format version stock Xournal++ writes and understands.
+    static constexpr int STOCK_FILE_FORMAT_VERSION = 5;
+
+    /**
+     * @brief Does the document use any of this fork's file format extensions?
+     *
+     * The fork's extensions are extra attributes on existing elements, which stock Xournal++
+     * ignores; a document carrying them is nonetheless tagged with the fork's file format
+     * version so that a stock build warns before opening it. Today that means: does any stroke
+     * carry line shape metadata, or any text carry inline style runs. This is the single choke
+     * point for the decision — a later fork-only construct ORs its own test in here.
+     */
+    static bool hasForkFormatExtensions(const Document* doc);
+
+    /// The file format version to declare for this document
+    static int fileFormatVersion(const Document* doc);
+
 protected:
     static std::string getColorStr(Color c, unsigned char alpha = 0xff);
 
@@ -64,7 +83,12 @@ protected:
      */
     virtual void visitStrokeExtended(XmlPointNode* stroke, const Stroke* s);
 
-    virtual void writeHeader();
+    /**
+     * Export the inline style runs, which only this fork's format has
+     */
+    virtual void visitTextExtended(XmlTextNode* text, const Text* t);
+
+    virtual void writeHeader(const Document* doc);
     virtual void writeSolidBackground(XmlNode* background, ConstPageRef p);
     virtual void writeTimestamp(XmlAudioNode* xmlAudioNode, const AudioElement* audioElement);
     virtual void writeBackgroundName(XmlNode* background, ConstPageRef p);

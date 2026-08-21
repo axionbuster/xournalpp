@@ -6436,6 +6436,34 @@ If available select &lt;small&gt;&lt;tt&gt;pulse&lt;/tt&gt;&lt;/small&gt; as inp
               </packing>
             </child>
             <child>
+              <!-- Filled in by RecordingSettingsPanel, which builds its controls in code: the
+                   panel enumerates capture devices at runtime and shows a live preview of the
+                   ffmpeg command, neither of which can be expressed here. -->
+              <object class="GtkBox" id="recordingTabBox">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="margin-start">5</property>
+                <property name="orientation">vertical</property>
+                <child>
+                  <placeholder/>
+                </child>
+              </object>
+              <packing>
+                <property name="position">10</property>
+              </packing>
+            </child>
+            <child type="tab">
+              <object class="GtkLabel" id="recordingTabLabel">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="label" translatable="yes">Video Recording</property>
+              </object>
+              <packing>
+                <property name="position">10</property>
+                <property name="tab-fill">False</property>
+              </packing>
+            </child>
+            <child>
               <object class="GtkBox" id="latexTabBox">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>

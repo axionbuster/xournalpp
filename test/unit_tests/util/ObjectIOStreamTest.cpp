@@ -8,9 +8,13 @@
 #include <cairo.h>
 #include <gtest/gtest.h>
 
+#include "model/LineShape.h"
 #include "model/Link.h"
+#include "model/Point.h"
 #include "model/Stroke.h"
+#include "model/Text.h"
 #include "model/TextAlignment.h"
+#include "model/TextStyleRuns.h"
 #include "util/StringUtils.h"
 #include "util/serializing/BinObjectEncoding.h"
 #include "util/serializing/HexObjectEncoding.h"
@@ -86,6 +90,15 @@ std::string serializeUInt(uint32_t x) {
 std::string serializeStroke(Stroke& stroke) {
     ObjectOutputStream outStream(new BinObjectEncoding);
     stroke.serialize(outStream);
+    auto outStr = outStream.stealData();
+    auto resStr = std::string{outStr->str, outStr->len};
+    g_string_free(outStr, true);
+    return resStr;
+}
+
+std::string serializeText(Text& text) {
+    ObjectOutputStream outStream(new BinObjectEncoding);
+    text.serialize(outStream);
     auto outStr = outStream.stealData();
     auto resStr = std::string{outStr->str, outStr->len};
     g_string_free(outStr, true);
@@ -344,6 +357,13 @@ void assertStrokeEquality(const Stroke& stroke1, const Stroke& stroke2) {
     EXPECT_EQ(stroke1.getAudioFilename(), stroke2.getAudioFilename());
     EXPECT_EQ(stroke1.getToolType(), stroke2.getToolType());
     EXPECT_EQ(stroke1.getFill(), stroke2.getFill());
+
+    EXPECT_EQ(stroke1.getLineShape().has_value(), stroke2.getLineShape().has_value());
+    if (stroke1.getLineShape() && stroke2.getLineShape()) {
+        EXPECT_EQ(stroke1.getLineShape()->type, stroke2.getLineShape()->type);
+        EXPECT_TRUE(stroke1.getLineShape()->anchorA.equalsPos(stroke2.getLineShape()->anchorA));
+        EXPECT_TRUE(stroke1.getLineShape()->anchorB.equalsPos(stroke2.getLineShape()->anchorB));
+    }
     EXPECT_EQ(stroke1.getWidth(), stroke2.getWidth());
 
     double avgPressure1 = stroke1.getAvgPressure();
@@ -422,6 +442,146 @@ TEST(UtilObjectIOStream, testReadStroke) {
         std::cerr << "InputStreamException testing stroke " << i << ": " << e.what() << std::endl;
         FAIL();
     }
+}
+
+TEST(UtilObjectIOStream, testReadStrokeLineShape) {
+    // The line shape metadata must survive the binary round trip, or clipboard and undo would
+    // lose the anchors that make a shape's ends grabbable.
+    const LineShapeType::Value types[] = {LineShapeType::RAY, LineShapeType::INFINITE_LINE, LineShapeType::ARROW,
+                                          LineShapeType::DOUBLE_ARROW};
+
+    std::vector<Stroke> strokes(std::size(types) + 1);
+    // strokes[0]: no line shape, to check the "absent" encoding next to the present ones
+    size_t index = 1;
+    for (const auto type: types) {
+        strokes[index].addPoint(Point(1., 2.));
+        strokes[index].addPoint(Point(41., 43.));
+        strokes[index].setWidth(3.5);
+        strokes[index].setLineShape(LineShape{type, Point(1., 2.), Point(38.25, 39.5)});
+        index++;
+    }
+
+    size_t i = 0;
+    try {
+        for (auto&& stroke: strokes) {
+            std::string out_string = serializeStroke(stroke);
+            ObjectInputStream istream;
+            istream.read(out_string.c_str(), out_string.size());
+
+            Stroke in_stroke;
+            in_stroke.readSerialized(istream);
+            assertStrokeEquality(stroke, in_stroke);
+            ++i;
+        }
+    } catch (const InputStreamException& e) {
+        std::cerr << "InputStreamException testing shaped stroke " << i << ": " << e.what() << std::endl;
+        FAIL();
+    }
+}
+
+TEST(UtilObjectIOStream, testAtEndOfObject) {
+    // Optional trailing fields rely on this: a reader must be able to tell a field that is
+    // there from an object that simply ends, without consuming anything either way.
+    ObjectOutputStream outStream(new BinObjectEncoding);
+    outStream.writeObject("Test");
+    outStream.writeInt(42);
+    outStream.endObject();
+    outStream.writeObject("Empty");
+    outStream.endObject();
+
+    auto outStr = outStream.stealData();
+    std::string str{outStr->str, outStr->len};
+    g_string_free(outStr, true);
+
+    ObjectInputStream istream;
+    ASSERT_TRUE(istream.read(str.c_str(), str.size()));
+
+    istream.readObject("Test");
+    EXPECT_FALSE(istream.atEndOfObject());
+    EXPECT_EQ(42, istream.readInt());
+    EXPECT_TRUE(istream.atEndOfObject());
+    // Peeking left the position alone, so the end marker is still there to read
+    EXPECT_NO_THROW(istream.endObject());
+
+    istream.readObject("Empty");
+    EXPECT_TRUE(istream.atEndOfObject());
+    EXPECT_NO_THROW(istream.endObject());
+}
+
+TEST(UtilObjectIOStream, testReadTextStyleRuns) {
+    // The style runs must survive the binary round trip, or the clipboard and undo would lose
+    // the inline styling of a text element.
+    TextStyleRun italic;
+    italic.start = 2;
+    italic.end = 5;
+    italic.italic = true;
+
+    TextStyleRun boldRed;
+    boldRed.start = 7;
+    boldRed.end = 11;
+    boldRed.bold = true;
+    boldRed.color = Colors::red;
+
+    // A run that takes bold and italic away from the element's own font, which is a different
+    // thing to encode than "no opinion" and must not come back as one
+    TextStyleRun forcedOff;
+    forcedOff.start = 13;
+    forcedOff.end = 15;
+    forcedOff.bold = false;
+    forcedOff.italic = false;
+
+    std::vector<Text> texts(4);
+    // texts[0]: unstyled, to check the "absent" encoding next to the styled ones
+    for (auto&& text: texts) {
+        text.setText("Multiline\ntext 测试");
+    }
+    texts[1].setStyleRuns({italic});
+    texts[2].setStyleRuns({italic, boldRed});
+    texts[3].setStyleRuns({italic, forcedOff});
+
+    size_t i = 0;
+    try {
+        for (auto&& text: texts) {
+            std::string out_string = serializeText(text);
+            ObjectInputStream istream;
+            istream.read(out_string.c_str(), out_string.size());
+
+            Text in_text;
+            in_text.readSerialized(istream);
+            EXPECT_EQ(text.getText(), in_text.getText());
+            EXPECT_EQ(text.getStyleRuns(), in_text.getStyleRuns());
+            ASSERT_EQ(text.getStyleRuns().size(), in_text.getStyleRuns().size());
+            for (size_t k = 0; k < text.getStyleRuns().size(); k++) {
+                EXPECT_EQ(text.getStyleRuns()[k].color, in_text.getStyleRuns()[k].color);
+            }
+            ++i;
+        }
+    } catch (const InputStreamException& e) {
+        std::cerr << "InputStreamException testing text " << i << ": " << e.what() << std::endl;
+        FAIL();
+    }
+}
+
+TEST(UtilObjectIOStream, testUnstyledTextSerializesLikeStock) {
+    // An unstyled element must write exactly what a stock Xournal++ build writes, so that it
+    // still pastes into one: the runs block is simply not there.
+    Text text;
+    text.setText("plain");
+
+    const std::string plain = serializeText(text);
+
+    TextStyleRun bold;
+    bold.start = 0;
+    bold.end = 5;
+    bold.bold = true;
+    text.setStyleRuns({bold});
+
+    const std::string styled = serializeText(text);
+
+    ASSERT_LT(plain.size(), styled.size());
+    // Everything but the two bytes of the object's end marker is the same in both
+    const std::string common = plain.substr(0, plain.size() - 2);
+    EXPECT_EQ(common, styled.substr(0, common.size())) << "the styled blob should extend the plain one";
 }
 
 TEST(UtilObjectIOStream, testReadLink) {

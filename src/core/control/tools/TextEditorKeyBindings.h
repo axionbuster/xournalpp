@@ -131,6 +131,10 @@ const TextEditor::KeyBindings TextEditor::keyBindings(
          {KeyBindings::hash(CTRL, GDK_KEY_b), wrap<&TextEditor::toggleBoldFace>},
          {KeyBindings::hash(CTRL, GDK_KEY_B), wrap<&TextEditor::toggleBoldFace>},
 
+         // GDK_KEY_I covers Ctrl+Shift+I, whose Shift is consumed to produce the upper case keyval
+         {KeyBindings::hash(CTRL, GDK_KEY_i), wrap<&TextEditor::toggleItalic>},
+         {KeyBindings::hash(CTRL, GDK_KEY_I), wrap<&TextEditor::toggleItalic>},
+
          {KeyBindings::hash(CTRL, GDK_KEY_plus), wrap<&TextEditor::increaseFontSize>},
          {KeyBindings::hash(CTRL, GDK_KEY_KP_Add), wrap<&TextEditor::increaseFontSize>},
 

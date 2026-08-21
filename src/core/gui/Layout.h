@@ -66,7 +66,25 @@ public:
      */
     void ensureRectIsVisible(int x, int y, int width, int height);
 
-    /// Returns the height of the entire Layout - including centering padding
+    /**
+     * Scrolls so the given Rectangle is visible with its top edge always at the same place in the
+     * viewport, whatever the view was showing beforehand.
+     *
+     * ensureRectIsVisible() scrolls the smallest distance that works, which makes the result depend
+     * on the direction of travel: gtk_adjustment_clamp_page() aligns the rectangle's bottom when it
+     * lies below the viewport and its top when it lies above. For a rectangle taller than the
+     * viewport both rules fire and the top wins, so paging through a document normally looks
+     * stable. But once a page is shorter than the viewport - a fullscreen window, a zoomed out view
+     * - the very same page settles (viewport height - rect height - 15) pixels apart depending on
+     * whether it was reached from an earlier or a later page.
+     *
+     * Page navigation should land in the same place no matter the route taken, so it uses this.
+     * Dragging a selection past the edge of the window still wants minimal scrolling, and keeps
+     * using ensureRectIsVisible().
+     */
+    void scrollRectToTop(int x, int y, int width);
+
+    /// Returns the height of the entire Layout - including centering padding and bottom scroll reserve
     int getTotalPixelHeight() const;
 
     /// Returns the height of the entire Layout - excluding centering padding
@@ -156,6 +174,20 @@ protected:
     /// Same as above but does not lock the mutex
     void recomputeCenteringPaddingUnsafe(int allocWidth, int allocHeight);
 
+    /**
+     * How many pixels of scrolling room the layout needs past its last row, so that scrollRectToTop()
+     * can put the last page where it puts every other page.
+     *
+     * A row taller than the viewport is followed by enough of itself for the scroll position that
+     * aligns its top to be reachable, so this is 0 - the usual case, and the layout is untouched.
+     * A shorter last row is not: GTK stops the scroll at the bottom of the layout, and the last page
+     * comes to rest that much lower in the viewport than any other page. Reserving the difference is
+     * what lets it travel the whole way.
+     *
+     * @param allocHeight The height of the viewport, in pixels
+     */
+    int computeBottomScrollReserveUnsafe(int allocHeight) const;
+
     /// Convert pixel-coordinates to the grid position containing them
     GridPosition getGridPositionAtUnsafe(const xoj::util::Point<double>& p) const;
 
@@ -186,6 +218,9 @@ public:
 
         int horizontalCenteringPadding;  ///< Added before and after if the allocation is too big
         int verticalCenteringPadding;    ///< Added before and after if the allocation is too big
+
+        /// Scrolling room after the last row - see computeBottomScrollReserveUnsafe(). In pixels
+        int bottomScrollReserve;
     };
 
 private:

@@ -18,6 +18,7 @@
 #include "model/Font.h"           // for XojFont
 #include "model/Text.h"           // for Text
 #include "model/TextAlignment.h"  // for TextAlignment
+#include "model/TextStyleRuns.h"  // for TextStyleRuns
 #include "model/XojPage.h"        // for XojPage
 #include "undo/DeleteUndoAction.h"
 #include "undo/InsertUndoAction.h"
@@ -33,6 +34,11 @@
 #include "view/overlays/TextEditionView.h"
 
 #include "TextEditorKeyBindings.h"
+#include "TextRunTags.h"
+
+using xoj::text::getByteOffsetOfIterator;
+using xoj::text::getIteratorAtByteOffset;
+using xoj::text::InlineStyle;
 
 class UndoAction;
 
@@ -46,47 +52,8 @@ static auto getIteratorAtCursor(GtkTextBuffer* buffer) -> GtkTextIter {
     return cursorIter;
 }
 
-/**
- * @brief Compute the byte offset of an iterator in the GtkTextBuffer
- *
- * NB: This is much faster than relying on g_utf8_offset_to_pointer
- */
-static auto getByteOffsetOfIterator(GtkTextIter it) -> int {
-    // Bytes from beginning of line to iterator
-    int pos = gtk_text_iter_get_line_index(&it);
-    gtk_text_iter_set_line_index(&it, 0);
-    // Count bytes of previous lines
-    while (gtk_text_iter_backward_line(&it)) {
-        pos += gtk_text_iter_get_bytes_in_line(&it);
-    }
-    return pos;
-}
-
 static auto getByteOffsetOfCursor(GtkTextBuffer* buffer) -> int {
     return getByteOffsetOfIterator(getIteratorAtCursor(buffer));
-}
-
-/**
- * @brief Get an iterator at the prescribed byte index.
- *
- * NB: This is much faster than relying on g_utf8_pointer_to_offset for long texts
- */
-static auto getIteratorAtByteOffset(GtkTextBuffer* buf, int byteIndex) {
-    xoj_assert(byteIndex >= 0);
-    GtkTextIter it = {nullptr};
-    gtk_text_buffer_get_start_iter(buf, &it);
-
-    // Fast forward to the beginning of the line containing our target destination
-    for (int linelength = gtk_text_iter_get_bytes_in_line(&it);
-         linelength <= byteIndex && gtk_text_iter_forward_line(&it);
-         byteIndex -= std::exchange(linelength, gtk_text_iter_get_bytes_in_line(&it))) {}
-
-    if (!gtk_text_iter_is_end(&it)) {
-        gtk_text_iter_set_line_index(&it, byteIndex);
-    }
-    // else { // byteIndex was either past-the-end or pointed to the end }
-
-    return it;
 }
 
 static auto cloneToCString(GtkTextBuffer* buf) {
@@ -139,6 +106,15 @@ TextEditor::TextEditor(Control* control, const PageRef& page, GtkWidget* xournal
 
     this->initializeEditionAt(x, y);
     g_signal_connect(this->buffer.get(), "paste-done", G_CALLBACK(bufferPasteDoneCallback), this);
+    /*
+     * Every way text enters the buffer -- an Input Method commit, a paste, a line break, a
+     * tabulation -- ends up emitting "insert-text", so the styling of inserted text is decided
+     * in one place instead of at each call site. The first handler runs before the insertion,
+     * while the character to the left of the insertion point is still the one to inherit from;
+     * the second runs after it, when the inserted range is known.
+     */
+    g_signal_connect(this->buffer.get(), "insert-text", G_CALLBACK(bufferInsertTextCallback), this);
+    g_signal_connect_after(this->buffer.get(), "insert-text", G_CALLBACK(bufferInsertedTextCallback), this);
 
     {  // Get cursor blinking settings
         GtkSettings* settings = gtk_widget_get_settings(this->xournalWidget);
@@ -323,8 +299,53 @@ void TextEditor::replaceBufferContent(const std::string& text) {
 }
 
 void TextEditor::setColor(Color color) {
+    GtkTextIter start;
+    GtkTextIter end;
+    if (gtk_text_buffer_get_selection_bounds(this->buffer.get(), &start, &end)) {
+        /*
+         * A color picked while part of the text is selected colors that part only. Picking the
+         * element's own color back removes the override rather than recording a run that says
+         * what the element already says.
+         */
+        const std::optional<Color> colorOverride =
+                color == this->textElement->getColor() ? std::nullopt : std::optional<Color>(color);
+        applyStyleToSelection([&](InlineStyle& s) { s.color = colorOverride; });
+        return;
+    }
+
     this->textElement->setColor(color);
     repaintEditor(false);
+}
+
+void TextEditor::applyStyleToSelection(const std::function<void(InlineStyle&)>& change) {
+    GtkTextIter start;
+    GtkTextIter end;
+    if (!gtk_text_buffer_get_selection_bounds(this->buffer.get(), &start, &end)) {
+        return;
+    }
+
+    /*
+     * The selection is re-styled stretch by stretch: whatever styling it already carries is kept
+     * except for the part `change` overwrites, so that italicizing a range that is partly red
+     * leaves the red where it was.
+     */
+    GtkTextIter it = start;
+    while (gtk_text_iter_compare(&it, &end) < 0) {
+        GtkTextIter next = it;
+        if (!gtk_text_iter_forward_to_tag_toggle(&next, nullptr) || gtk_text_iter_compare(&next, &end) > 0) {
+            next = end;
+        }
+
+        InlineStyle style = xoj::text::styleAt(&it);
+        change(style);
+        xoj::text::applyStyle(this->buffer.get(), &it, &next, style);
+
+        it = next;
+    }
+
+    // The glyphs change shape, so the box may grow or shrink
+    this->layoutStatus = LayoutStatus::NEEDS_ATTRIBUTES_UPDATE;
+    this->repaintEditor(true);
 }
 
 void TextEditor::setFont(XojFont font) {
@@ -345,6 +366,15 @@ void TextEditor::setJustify(bool justify) {
 }
 
 void TextEditor::afterFontChange() {
+    /*
+     * Ctrl+B, Ctrl+I and Ctrl+plus change the element's own font without going through the font
+     * action, so the font button would otherwise keep showing the font as it was when the
+     * edition started -- and the font dialog, as well as "save current font as preset", would
+     * start from that stale font.
+     */
+    this->control->getActionDatabase()->setActionState(Action::FONT,
+                                                       this->textElement->getFont().asString().c_str());
+
     this->textElement->updatePangoFont(this->layout.get());
     this->computeVirtualCursorPosition();
     this->repaintEditor();
@@ -496,22 +526,99 @@ void TextEditor::increaseFontSize() {
     afterFontChange();
 }
 
-void TextEditor::toggleBoldFace() {
-    // get the current/used font
-    XojFont& font = textElement->getFont();
-    std::string fontName = font.getName();
+/**
+ * @brief Toggle bold or italic, over the selection if there is one and over what gets typed next
+ * otherwise.
+ *
+ * Both are inline styles: they apply to a stretch of the text rather than to the element, so the
+ * element's own font is left alone and the styling rides along as style runs.
+ */
+void TextEditor::toggleStyle(std::optional<bool> InlineStyle::* which, bool baseState) {
+    /*
+     * A run says bold, not bold, or nothing at all, and only the last of the three lets the
+     * element's own font decide. So the toggle records what the user actually asked for --
+     * unless that is what the font already says, in which case saying nothing is both smaller
+     * and what keeps the range following a later font change.
+     */
+    auto asStored = [baseState](bool wanted) {
+        return wanted == baseState ? std::optional<bool>{} : std::optional<bool>{wanted};
+    };
 
-    std::size_t found = fontName.find(" Bold");
-
-    // toggle bold
-    if (found == std::string::npos) {
-        fontName = fontName + " Bold";
-    } else {
-        fontName = fontName.erase(found, 5);
+    GtkTextIter start;
+    GtkTextIter end;
+    if (gtk_text_buffer_get_selection_bounds(this->buffer.get(), &start, &end)) {
+        // A selection that is styled throughout gets the style taken away; anything else gets it
+        const bool turnOn = !xoj::text::rangeIsFullyStyled(which, baseState, &start, &end);
+        applyStyleToSelection([&](InlineStyle& s) { s.*which = asStored(turnOn); });
+        return;
     }
 
-    font.setName(fontName);
-    afterFontChange();
+    /*
+     * Without a selection the toggle is about what comes next: it flips a pending style, which
+     * the next insertion uses in place of what it would otherwise inherit from its left. The
+     * pending style starts from that same inherited style, so pressing Ctrl+B in the middle of
+     * red text and typing gives bold red text.
+     */
+    if (!this->pendingStyle) {
+        const GtkTextIter cursor = getIteratorAtCursor(this->buffer.get());
+        this->pendingStyle = xoj::text::styleLeftOf(&cursor);
+    }
+    (*this->pendingStyle).*which = asStored(!(((*this->pendingStyle).*which).value_or(baseState)));
+}
+
+auto TextEditor::baseFontIsBold() const -> bool {
+    PangoFontDescription* desc = pango_font_description_from_string(this->textElement->getFontName().c_str());
+    const bool bold = pango_font_description_get_weight(desc) >= PANGO_WEIGHT_BOLD;
+    pango_font_description_free(desc);
+    return bold;
+}
+
+auto TextEditor::baseFontIsItalic() const -> bool {
+    PangoFontDescription* desc = pango_font_description_from_string(this->textElement->getFontName().c_str());
+    const bool italic = pango_font_description_get_style(desc) != PANGO_STYLE_NORMAL;
+    pango_font_description_free(desc);
+    return italic;
+}
+
+void TextEditor::toggleBoldFace() { toggleStyle(&InlineStyle::bold, baseFontIsBold()); }
+
+void TextEditor::toggleItalic() { toggleStyle(&InlineStyle::italic, baseFontIsItalic()); }
+
+auto TextEditor::styleForInsertionAt(const GtkTextIter* location) const -> InlineStyle {
+    if (this->pendingStyle) {
+        return *this->pendingStyle;
+    }
+    // Text takes after the character it is typed behind
+    return xoj::text::styleLeftOf(location);
+}
+
+void TextEditor::bufferInsertTextCallback(GtkTextBuffer* buffer, GtkTextIter* location, const gchar* text, gint len,
+                                          TextEditor* te) {
+    if (te->pasteInProgress && te->pasteRange) {
+        // However many chunks GTK splits a paste into, it lands behind one character
+        return;
+    }
+    // Decided before the insertion, while the character to the left of it is still the old one
+    te->insertionStyle = te->styleForInsertionAt(location);
+}
+
+void TextEditor::bufferInsertedTextCallback(GtkTextBuffer* buffer, GtkTextIter* location, const gchar* text, gint len,
+                                            TextEditor* te) {
+    // GTK revalidated the iterator to the end of the inserted text
+    const int end = getByteOffsetOfIterator(*location);
+    const int start = end - len;
+    if (start < 0) {
+        return;  // Should not happen; better than tagging a bogus range
+    }
+
+    if (te->pasteInProgress) {
+        // Whatever the clipboard brought is applied after this returns; see TextEditor::pasteRange
+        te->pasteRange = {te->pasteRange ? te->pasteRange->first : start, end};
+        return;
+    }
+
+    GtkTextIter startIter = getIteratorAtByteOffset(buffer, start);
+    xoj::text::applyStyle(buffer, &startIter, location, te->insertionStyle);
 }
 
 void TextEditor::selectAtCursor(TextEditor::SelectType ty) {
@@ -571,6 +678,7 @@ void TextEditor::selectAtCursor(TextEditor::SelectType ty) {
     }
 
     gtk_text_buffer_select_range(this->buffer.get(), &startPos, &endPos);
+    this->pendingStyle.reset();
 
     control->setCopyCutEnabled(gtk_text_buffer_get_has_selection(this->buffer.get()));
 
@@ -680,7 +788,11 @@ void TextEditor::findPos(GtkTextIter* iter, double xPos, double yPos) const {
     gtk_text_iter_forward_chars(iter, trailing);
 }
 
-void TextEditor::updateTextElementContent() { this->textElement->setText(cloneToStdString(this->buffer.get())); }
+void TextEditor::updateTextElementContent() {
+    this->textElement->setText(cloneToStdString(this->buffer.get()));
+    // The tags GTK maintained through the whole edition become the element's style runs
+    this->textElement->setStyleRuns(xoj::text::runsFromBuffer(this->buffer.get()));
+}
 
 void TextEditor::contentsChanged(bool forceCreateUndoAction) {
     // Todo: Reinstate text edition undo stack
@@ -745,6 +857,10 @@ void TextEditor::computeVirtualCursorPosition() {
 }
 
 void TextEditor::moveCursorIterator(const GtkTextIter* newLocation, gboolean extendSelection) {
+    // A pending Ctrl+B / Ctrl+I applies where it was pressed. Moving away goes back to inheriting
+    // the style of whatever the cursor now sits after.
+    this->pendingStyle.reset();
+
     bool selectionChanged = true;
     if (extendSelection) {
         if (auto oldLoc = getIteratorAtCursor(this->buffer.get()); gtk_text_iter_equal(newLocation, &oldLoc)) {
@@ -996,10 +1112,26 @@ void TextEditor::cutToClipboard() {
 
 void TextEditor::pasteFromClipboard() {
     auto* clipboard = gtk_widget_get_clipboard(this->xournalWidget);
+    this->pasteRange.reset();
+    this->pasteInProgress = true;
     gtk_text_buffer_paste_clipboard(this->buffer.get(), clipboard, nullptr, true);
 }
 
 void TextEditor::bufferPasteDoneCallback(GtkTextBuffer* buffer, GtkClipboard* clipboard, TextEditor* te) {
+    te->pasteInProgress = false;
+    if (const auto range = std::exchange(te->pasteRange, std::nullopt)) {
+        GtkTextIter start = getIteratorAtByteOffset(buffer, range->first);
+        GtkTextIter end = getIteratorAtByteOffset(buffer, range->second);
+        /*
+         * Styled clipboard content arrives with its own tags and is left exactly as copied.
+         * Plain content -- anything from outside this fork -- takes after the character it lands
+         * behind, the same as typing there would.
+         */
+        if (!xoj::text::rangeCarriesStyle(&start, &end)) {
+            xoj::text::applyStyle(buffer, &start, &end, te->insertionStyle);
+        }
+    }
+
     te->contentsChanged(true);
     te->repaintEditor();
 
@@ -1043,6 +1175,22 @@ void TextEditor::setTextToPangoLayout(PangoLayout* pl) const {
         xoj::util::PangoAttrListSPtr attrlist(pango_attr_list_new(), xoj::util::adopt);
         pango_attr_list_splice(attrlist.get(), this->preeditAttrList.get(), pos, static_cast<int>(preed.length()));
 
+        /*
+         * The committed text keeps its styling around the string being composed, and the
+         * composition itself is drawn with the style it will commit with -- the pending Ctrl+B
+         * where there is one, and otherwise whatever it inherits from the character to its left.
+         */
+        std::optional<TextStyleRun> composing;
+        if (this->pendingStyle) {
+            composing.emplace();
+            composing->bold = this->pendingStyle->bold;
+            composing->italic = this->pendingStyle->italic;
+            composing->color = this->pendingStyle->color;
+        }
+        xoj::text::appendStyleRunAttributes(attrlist.get(), xoj::text::runsFromBuffer(this->buffer.get()),
+                                            static_cast<size_t>(pos), preed.length(),
+                                            composing ? &*composing : nullptr);
+
         pango_layout_set_attributes(pl, attrlist.get());
 
         pango_layout_set_text(pl, txt.c_str(), static_cast<int>(txt.length()));
@@ -1056,6 +1204,9 @@ Color TextEditor::getSelectionColor() const { return this->control->getSettings(
 
 void TextEditor::setSelectionAttributesToPangoLayout(PangoLayout* pl) const {
     xoj::util::PangoAttrListSPtr attrlist(pango_attr_list_new(), xoj::util::adopt);
+
+    // The inline styling and the selection background live in the same attribute list
+    xoj::text::appendStyleRunAttributes(attrlist.get(), xoj::text::runsFromBuffer(this->buffer.get()));
 
     GtkTextIter start;
     GtkTextIter end;
@@ -1265,5 +1416,7 @@ void TextEditor::initializeEditionAt(double x, double y) {
     this->currentWrapWidth = this->textElement->getWrap();
     this->layout = this->textElement->createPangoLayout();
     this->replaceBufferContent(this->textElement->getText());
+    // Editing styled text starts from its styling, so that it survives the round trip untouched
+    xoj::text::applyRunsToBuffer(this->buffer.get(), this->textElement->getStyleRuns());
     this->previousBoundingBox = this->computeBoundingBox();
 }

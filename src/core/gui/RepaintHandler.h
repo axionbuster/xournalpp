@@ -34,5 +34,11 @@ public:
     void repaintPageBorder(const XojPageView* view);
 
 private:
+    /**
+     * Mirror a repaint of @p view into the projector window, if one is open and showing that page.
+     * Cheap when the projector is closed, which is the usual case.
+     */
+    void notifyProjector(const XojPageView* view) const;
+
     XournalView* xournal;
 };
