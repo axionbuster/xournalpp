@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+  <!-- Never declare "org.xournalpp.clipboard" here as an exported or imported UTI
+       (UTExportedTypeDeclarations / UTImportedTypeDeclarations). The clipboard code
+       relies on that identifier staying UNDECLARED so GTK's quartz backend passes it
+       through verbatim; declaring it reintroduces the silent paste failure. See the
+       atomXournalAlias comment in src/core/control/ClipboardHandler.cpp. -->
   <dict>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
