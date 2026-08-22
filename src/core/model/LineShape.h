@@ -106,6 +106,16 @@ struct Grab {
 };
 
 /**
+ * @brief `dragged` moved onto the line through `fixedAnchor` and `grabbedAnchor`.
+ *
+ * Stretching an end of a ray or infinite line must not disturb the line itself: the grabbed
+ * anchor slides along the original axis and sideways cursor travel is discarded. When the two
+ * anchors are closer together than MIN_ANCHOR_SEPARATION there is no axis to preserve, and
+ * `dragged` comes back unchanged.
+ */
+Point projectOntoAxis(const Point& fixedAnchor, const Point& grabbedAnchor, const Point& dragged);
+
+/**
  * @brief The line shape stroke of `layer` whose end a press at `p` grabs, if any.
  *
  * The nearest end wins across the whole layer, not merely the first one found from the top:

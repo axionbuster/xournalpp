@@ -200,6 +200,42 @@ TEST(ModelLineShape, degenerateShapesGetNoMetadata) {
     EXPECT_DOUBLE_EQ(80.0, shape->anchorB.y);
 }
 
+TEST(ModelLineShape, projectOntoAxisDiscardsSidewaysTravel) {
+    using xoj::lineshape::projectOntoAxis;
+
+    const Point fixedAnchor(100, 100);
+    const Point grabbedAnchor(200, 100);
+
+    // Pure sideways travel leaves the anchor where it was
+    Point p = projectOntoAxis(fixedAnchor, grabbedAnchor, Point(200, 160));
+    EXPECT_DOUBLE_EQ(200.0, p.x);
+    EXPECT_DOUBLE_EQ(100.0, p.y);
+
+    // Diagonal travel keeps only the along-axis part
+    p = projectOntoAxis(fixedAnchor, grabbedAnchor, Point(260, 130));
+    EXPECT_DOUBLE_EQ(260.0, p.x);
+    EXPECT_DOUBLE_EQ(100.0, p.y);
+
+    // Dragging past the fixed anchor stays on the axis too
+    p = projectOntoAxis(fixedAnchor, grabbedAnchor, Point(40, 90));
+    EXPECT_DOUBLE_EQ(40.0, p.x);
+    EXPECT_DOUBLE_EQ(100.0, p.y);
+}
+
+TEST(ModelLineShape, projectOntoAxisOnASlantedAxis) {
+    // A 45 degree axis through the origin: (100, 0) projects onto its midpoint
+    const Point p = xoj::lineshape::projectOntoAxis(Point(0, 0), Point(100, 100), Point(100, 0));
+    EXPECT_DOUBLE_EQ(50.0, p.x);
+    EXPECT_DOUBLE_EQ(50.0, p.y);
+}
+
+TEST(ModelLineShape, projectOntoAxisWithoutAnAxisReturnsTheDraggedPoint) {
+    // Anchors closer than MIN_ANCHOR_SEPARATION give no direction to project onto
+    const Point p = xoj::lineshape::projectOntoAxis(Point(100, 100), Point(100.2, 100.2), Point(300, 50));
+    EXPECT_DOUBLE_EQ(300.0, p.x);
+    EXPECT_DOUBLE_EQ(50.0, p.y);
+}
+
 TEST(ModelLineShape, cloningKeepsTheMetadataButSectionsDropIt) {
     const auto stroke = makeRayStroke();
 

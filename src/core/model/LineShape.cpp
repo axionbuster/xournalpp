@@ -26,6 +26,20 @@ auto xoj::lineshape::makeIfMeaningful(LineShapeType type, const Point& a, const 
     return LineShape{type, a, b};
 }
 
+auto xoj::lineshape::projectOntoAxis(const Point& fixedAnchor, const Point& grabbedAnchor, const Point& dragged)
+        -> Point {
+    const double dx = grabbedAnchor.x - fixedAnchor.x;
+    const double dy = grabbedAnchor.y - fixedAnchor.y;
+    const double length = std::hypot(dx, dy);
+    if (length < MIN_ANCHOR_SEPARATION) {
+        return dragged;
+    }
+    const double ux = dx / length;
+    const double uy = dy / length;
+    const double along = (dragged.x - fixedAnchor.x) * ux + (dragged.y - fixedAnchor.y) * uy;
+    return Point(fixedAnchor.x + along * ux, fixedAnchor.y + along * uy);
+}
+
 auto xoj::lineshape::grabbedAnchor(const Stroke& stroke, const Point& p) -> std::optional<AnchorHit> {
     const auto& shape = stroke.getLineShape();
     if (!shape) {

@@ -43,7 +43,13 @@ ExtendedLineHandler::~ExtendedLineHandler() = default;
 
 auto ExtendedLineHandler::createShape(bool isAltDown, bool isShiftDown, bool isControlDown)
         -> std::pair<std::vector<Point>, Range> {
-    const Point dragged = snappingHandler.snap(this->currPoint, this->startPoint, isAltDown);
+    // Re-editing an end stretches the shape along its own axis: sideways cursor travel is
+    // discarded, so the line the user drew keeps its position and direction. Snapping would pull
+    // the anchor off that axis, so it only applies while a new shape is being drawn.
+    const Point dragged =
+            this->grabbedOriginal.e ?
+                    xoj::lineshape::projectOntoAxis(this->startPoint, this->grabbedAnchorInitial, this->currPoint) :
+                    snappingHandler.snap(this->currPoint, this->startPoint, isAltDown);
 
     // While drawing, the press point is the first anchor and the dragged point the second. When
     // an existing shape is re-edited by its first anchor, the two swap roles: for a ray, that is

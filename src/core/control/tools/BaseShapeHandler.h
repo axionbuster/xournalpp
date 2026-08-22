@@ -157,6 +157,15 @@ protected:
     bool draggingFirstAnchor = false;
 
     /**
+     * @brief Where the grabbed anchor sat when the grab began.
+     *
+     * currPoint starts out here too, but moves with the drag; this stays put, so a handler
+     * that keeps the drag on the shape's original axis can still see that axis. Meaningless
+     * when drawing a new shape.
+     */
+    Point grabbedAnchorInitial;
+
+    /**
      * @brief Where the grabbed anchor sits relative to the press, in page units.
      *
      * A grab lands anywhere within the grab radius — often on the arrow head rather than on the

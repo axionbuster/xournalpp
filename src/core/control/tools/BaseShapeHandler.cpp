@@ -81,6 +81,7 @@ void BaseShapeHandler::grabExistingStroke(Layer* layer, InsertionPosition origin
     // Start out exactly where the grabbed anchor already is, so that grabbing and letting go
     // without dragging leaves the shape as it was.
     this->currPoint = this->draggingFirstAnchor ? shape.anchorA : shape.anchorB;
+    this->grabbedAnchorInitial = this->currPoint;
 
     this->grabbedLayer = layer;
     this->grabbedOriginal = std::move(original);
