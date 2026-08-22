@@ -198,9 +198,11 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
                 this->cbShowPointer,
                 _("The picture is drawn from the document, so the cursor on your desktop is not in it: without this, "
                   "a viewer sees ink appear with no idea where the pen was in between, and pointing at something "
-                  "already written shows nothing at all. The same configured marker is drawn on the live canvas, in "
-                  "the projector and in the recording. On the canvas it replaces the platform cursor during ordinary "
-                  "pointing and drawing; resize, text and other interaction affordances remain available."));
+                  "already written shows nothing at all. For ordinary tools, the same configured marker is drawn on "
+                  "the live canvas, in the projector and in the recording. On the canvas it replaces the platform "
+                  "cursor during ordinary pointing and drawing; resize, text and other interaction affordances "
+                  "remain available. The eraser follows Eraser Visibility and keeps its rectangular size outline; "
+                  "projected and recorded frames show its neutral marker."));
         gtk_box_pack_start(GTK_BOX(content), this->cbShowPointer, FALSE, TRUE, 0);
 
         // No bound worth defending at either end: a marker two pixels across is reasonable on a 4K

@@ -36,6 +36,13 @@ double scalePointerMarkerDiameter(double configuredDiameter, double areaHeight, 
 /** Draw one marker at @p center. Returns false when the requested diameter draws nothing. */
 bool drawPointerMarker(cairo_t* cr, const xoj::util::Point<double>& center, const PointerMarkerStyle& style);
 
+/** Whether @p tool uses the shared marker on the live canvas. */
+bool pointerMarkerDrawsOnLiveCanvas(ToolType tool);
+
+/** Draw the live-canvas marker when it is the right cursor for @p tool. */
+bool drawLivePointerMarker(cairo_t* cr, const xoj::util::Point<double>& center, const PointerMarkerStyle& style,
+                           ToolType tool);
+
 /**
  * Whether a native cursor conveys an affordance worth retaining underneath the shared marker.
  *

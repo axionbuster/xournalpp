@@ -471,7 +471,9 @@ auto XournalView::getPointerPositionInLayout() const -> std::optional<xoj::util:
 
 bool XournalView::isPointerMarkerVisible() const {
     Settings* settings = this->control->getSettings();
-    if (!settings->isVideoRecordingShowPointer() || getCanvasPointerMarkerDiameter() <= 0.0) {
+    const ToolType tool = this->control->getToolHandler()->getToolType();
+    if (!settings->isVideoRecordingShowPointer() || !xoj::gui::pointerMarkerDrawsOnLiveCanvas(tool) ||
+        getCanvasPointerMarkerDiameter() <= 0.0) {
         return false;
     }
 
@@ -483,7 +485,9 @@ bool XournalView::isPointerMarkerVisible() const {
 
 void XournalView::drawPointerMarker(cairo_t* cr) const {
     Settings* settings = this->control->getSettings();
-    if (!settings->isVideoRecordingShowPointer()) {
+    ToolHandler* tools = this->control->getToolHandler();
+    const ToolType tool = tools->getToolType();
+    if (!settings->isVideoRecordingShowPointer() || !xoj::gui::pointerMarkerDrawsOnLiveCanvas(tool)) {
         return;
     }
 
@@ -499,16 +503,15 @@ void XournalView::drawPointerMarker(cairo_t* cr) const {
         return;
     }
 
-    ToolHandler* tools = this->control->getToolHandler();
-    const Color color = tools->getToolType() == TOOL_ERASER ? Color(0xFF808080U) : tools->getColor();
+    const Color color = tools->getColor();
 
     const auto origin = pageView->getPixelPosition();
     cairo_save(cr);
     cairo_rectangle(cr, origin.x, origin.y, pageView->getDisplayWidth(), pageView->getDisplayHeight());
     cairo_clip(cr);
-    xoj::gui::drawPointerMarker(
+    xoj::gui::drawLivePointerMarker(
             cr, *position,
-            {diameter, tools->getThickness() * this->getZoom(), settings->getVideoRecordingPointerShape(), color});
+            {diameter, tools->getThickness() * this->getZoom(), settings->getVideoRecordingPointerShape(), color}, tool);
     cairo_restore(cr);
 }
 

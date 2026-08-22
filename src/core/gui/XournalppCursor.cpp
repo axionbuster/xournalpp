@@ -114,6 +114,23 @@ constexpr auto DELTA_ANGLE_ARROW_HEAD = M_PI / 6.0;
 constexpr auto LENGTH_ARROW_HEAD = 0.7;
 constexpr auto RESIZE_CURSOR_HASH_PRECISION = 1000;
 
+namespace xoj::gui {
+
+bool inputDeviceTransitionRequiresCursorReapply(InputDeviceClass current, InputDeviceClass next) {
+    return current != next;
+}
+
+bool eraserCursorIsVisible(InputDeviceClass device, EraserVisibility visibility, bool mouseDown) {
+    if (device != INPUT_DEVICE_PEN && device != INPUT_DEVICE_ERASER) {
+        return true;
+    }
+
+    return visibility != ERASER_VISIBILITY_NEVER && !(visibility == ERASER_VISIBILITY_HOVER && mouseDown) &&
+           !(visibility == ERASER_VISIBILITY_TOUCH && !mouseDown);
+}
+
+}  // namespace xoj::gui
+
 
 XournalppCursor::~XournalppCursor() {
     if (this->blankCursor != nullptr) {
@@ -123,14 +140,17 @@ XournalppCursor::~XournalppCursor() {
 
 
 void XournalppCursor::setInputDeviceClass(InputDeviceClass device) {
-    if (this->inputDevice == device) {
+    if (!xoj::gui::inputDeviceTransitionRequiresCursorReapply(this->inputDevice, device)) {
         return;
     }
 
     this->inputDevice = device;
     // A backend can restore its native arrow as ownership moves between the mouse and tablet.
-    // Proximity/device-change events need not be followed by motion, so reassert the marker's
-    // cursor policy at the transition itself.
+    // Proximity/device-change events need not be followed by motion. Invalidate the logical
+    // cursor cache before updating so custom cursors such as the unchanged eraser outline are
+    // recreated and reapplied, not mistaken for a cursor the backend is still displaying.
+    this->currentCursor = CRSR_nullptr;
+    this->currentCursorFlavour = 0;
     updateCursor();
 }
 
@@ -338,9 +358,7 @@ void XournalppCursor::updateCursor() {
             }
         } else if (type == TOOL_ERASER) {
             EraserVisibility visibility = control->getSettings()->getEraserVisibility();
-            if ((this->inputDevice == INPUT_DEVICE_PEN || this->inputDevice == INPUT_DEVICE_ERASER) &&
-                (visibility == ERASER_VISIBILITY_NEVER || (visibility == ERASER_VISIBILITY_HOVER && this->mouseDown) ||
-                 (visibility == ERASER_VISIBILITY_TOUCH && !this->mouseDown))) {
+            if (!xoj::gui::eraserCursorIsVisible(this->inputDevice, visibility, this->mouseDown)) {
                 setCursor(CRSR_BLANK_CURSOR);
             } else {
                 cursor = getEraserCursor();

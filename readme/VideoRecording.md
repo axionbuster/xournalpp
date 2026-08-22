@@ -29,9 +29,12 @@ and pointing at something already written -- half of what happens in a lecture -
 all.
 
 So one shared renderer draws a marker at the pen on the live canvas and in the frame, in the current
-pen's color -- the eraser gets a neutral gray, having no color of its own. Three shapes are offered.
-All are drawn at the same size, all have a thin dark edge so they have a boundary against a white
-page, and all mark the exact tip; what they trade is how much of the page underneath survives:
+pen's color. The eraser is the deliberate exception on the live canvas: when allowed by the Eraser
+Visibility setting, its rectangular outline shows the area that will actually be erased. A frame
+cannot capture that native cursor, so the projector and recording use a neutral gray marker for the
+eraser instead. Three marker shapes are offered. All are drawn at the same size, all have a thin
+dark edge so they have a boundary against a white page, and all mark the exact tip; what they trade
+is how much of the page underneath survives:
 
 | Shape | What it does |
 | --- | --- |
@@ -56,9 +59,9 @@ size.
 On the live canvas, ordinary pointing and drawing use the marker alone. A retained 1x1 transparent
 GDK cursor keeps the platform pointer out of the way; this matters on macOS, where asking Quartz for
 a large custom cursor can clip it or fall back to the system arrow. Cursors that communicate an
-interaction -- selection resize and rotate handles, the text caret, pan and vertical-space modes --
-stay visible under the marker. The result keeps those affordances without letting the native arrow
-randomly appear over ordinary ink.
+interaction -- the eraser's size outline when enabled, selection resize and rotate handles, the
+text caret, pan and vertical-space modes -- stay visible. The result keeps those affordances without
+letting the native arrow randomly appear over ordinary ink.
 
 Where the pen is comes from `InputContext`, which every pen, eraser and mouse event passes through
 on its way to a handler. Three details are worth knowing:

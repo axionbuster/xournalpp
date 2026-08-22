@@ -1445,7 +1445,7 @@ void Settings::save() {
     SAVE_STRING_PROP(videoRecordingExtraArguments);
     ATTACH_COMMENT("Extra ffmpeg arguments, appended last so they override everything else.");
     SAVE_BOOL_PROP(videoRecordingShowPointer);
-    ATTACH_COMMENT("Draw the shared marker at the pen's position on the canvas, projector, and video.");
+    ATTACH_COMMENT("Show the pointer at the pen's position on the canvas, projector, and video.");
     SAVE_DOUBLE_PROP(videoRecordingPointerSize);
     ATTACH_COMMENT("Diameter of that marker, in pixels of the recorded frame.");
     xmlNode = saveProperty("videoRecordingPointerShape",

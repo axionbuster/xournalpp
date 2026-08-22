@@ -14,10 +14,21 @@
 #include <gdk/gdk.h>  // for GdkCursor
 #include <glib.h>     // for guint, gulong
 
+#include "control/settings/SettingsEnums.h"      // for EraserVisibility
 #include "control/tools/CursorSelectionType.h"  // for CursorSelectionType
 #include "gui/inputdevices/InputEvents.h"       // for InputDeviceClass, INP...
 
 class Control;
+
+namespace xoj::gui {
+
+/** Whether changing input devices may require reapplying the platform cursor. */
+bool inputDeviceTransitionRequiresCursorReapply(InputDeviceClass current, InputDeviceClass next);
+
+/** Whether the native rectangular eraser cursor is visible for the current device state. */
+bool eraserCursorIsVisible(InputDeviceClass device, EraserVisibility visibility, bool mouseDown);
+
+}  // namespace xoj::gui
 
 class XournalppCursor {
 public:

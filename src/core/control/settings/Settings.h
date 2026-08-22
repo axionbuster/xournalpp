@@ -577,7 +577,9 @@ public:
      * Drawn by one shared marker renderer on the live canvas and wherever the shared canvas frame
      * is drawn -- which means the projector window and recording show the same shape, color, tip
      * and proportional size. The live canvas replaces ordinary native drawing cursors with the
-     * marker so platform custom-cursor limits cannot clip it or turn it back into an arrow.
+     * marker so platform custom-cursor limits cannot clip it or turn it back into an arrow. The
+     * eraser retains its rectangular live size outline when allowed by Eraser Visibility; frames
+     * represent it with a neutral marker.
      */
     bool isVideoRecordingShowPointer() const;
     void setVideoRecordingShowPointer(bool show);

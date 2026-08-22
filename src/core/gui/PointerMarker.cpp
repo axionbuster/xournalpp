@@ -80,6 +80,17 @@ bool drawPointerMarker(cairo_t* cr, const xoj::util::Point<double>& center, cons
     return true;
 }
 
+bool pointerMarkerDrawsOnLiveCanvas(ToolType tool) {
+    // The eraser outline communicates the actual erasing area. Preview/projector/video frames
+    // cannot capture that native cursor and still use drawPointerMarker() with neutral gray.
+    return tool != TOOL_ERASER;
+}
+
+bool drawLivePointerMarker(cairo_t* cr, const xoj::util::Point<double>& center, const PointerMarkerStyle& style,
+                           ToolType tool) {
+    return pointerMarkerDrawsOnLiveCanvas(tool) && drawPointerMarker(cr, center, style);
+}
+
 bool pointerMarkerKeepsNativeCursor(ToolType tool, CursorSelectionType selectionType, bool drawDirectionAffordance) {
     if (selectionType != CURSOR_SELECTION_NONE) {
         return true;
@@ -95,6 +106,7 @@ bool pointerMarkerKeepsNativeCursor(ToolType tool, CursorSelectionType selection
     }
 
     switch (tool) {
+        case TOOL_ERASER:
         case TOOL_HAND:
         case TOOL_TEXT:
         case TOOL_LATEX:
