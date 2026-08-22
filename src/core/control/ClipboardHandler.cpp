@@ -43,6 +43,25 @@ ClipboardHandler::~ClipboardHandler() { g_signal_handler_disconnect(this->clipbo
 
 static GdkAtom atomXournal = gdk_atom_intern_static_string("application/xournal");
 
+/**
+ * Quartz-safe alias for the Xournal++ clipboard format.
+ *
+ * GTK3's macOS backend converts a MIME-shaped target such as "application/xournal" into a
+ * dynamic UTI when declaring pasteboard types (gdk_quartz_target_to_pasteboard_type_libgtk_only,
+ * macOS >= Big Sur), but reads the data back with the raw target string
+ * (_gtk_quartz_get_selection_data_from_pasteboard). The declared type and the requested type
+ * never match, so pasting "application/xournal" data silently yields nothing on macOS.
+ *
+ * This alias is deliberately NOT a MIME type and NOT a declared UTI: UTType resolves it to nil
+ * in both directions, so GTK passes the string through unchanged on declare, on TARGETS
+ * enumeration, and on data read, and the round trip works. Keep it lowercase reverse-DNS so
+ * NSPasteboard stores it verbatim, and never declare it as an exported UTI in the app bundle,
+ * or the passthrough breaks.
+ *
+ * The legacy target stays registered so stock Xournal++ builds on X11 can still paste from us.
+ */
+static GdkAtom atomXournalAlias = gdk_atom_intern_static_string("org.xournalpp.clipboard");
+
 auto ClipboardHandler::paste() -> bool {
     /* Request targets again, since the owner-change signal is not emitted on MacOS and under X11 with no XFIXES
      * extension. See https://docs.gtk.org/gdk3/struct.EventOwnerChange.html and
@@ -50,8 +69,8 @@ auto ClipboardHandler::paste() -> bool {
     gtk_clipboard_request_contents(clipboard, gdk_atom_intern_static_string("TARGETS"),
                                    reinterpret_cast<GtkClipboardReceivedFunc>(receivedClipboardContents), this);
 
-    if (this->containsXournal) {
-        gtk_clipboard_request_contents(this->clipboard, atomXournal,
+    if (this->containsXournal && this->xournalPasteTarget != GDK_NONE) {
+        gtk_clipboard_request_contents(this->clipboard, this->xournalPasteTarget,
                                        reinterpret_cast<GtkClipboardReceivedFunc>(pasteClipboardContents), this);
         return true;
     }
@@ -114,7 +133,7 @@ public:
         } else if (atomSvg1 == target || atomSvg2 == target) {
             gtk_selection_data_set(selection, target, 8, reinterpret_cast<guchar const*>(contents->svg.c_str()),
                                    static_cast<gint>(contents->svg.length()));
-        } else if (atomXournal == target) {
+        } else if (atomXournal == target || atomXournalAlias == target) {
             gtk_selection_data_set(selection, target, 8, reinterpret_cast<guchar*>(contents->str->str),
                                    static_cast<gint>(contents->str->len));
         }
@@ -226,6 +245,7 @@ auto ClipboardHandler::copy() -> bool {
     gtk_target_list_add(list, atomSvg1, 0, 0);
     gtk_target_list_add(list, atomSvg2, 0, 0);
     gtk_target_list_add(list, atomXournal, 0, 0);
+    gtk_target_list_add(list, atomXournalAlias, 0, 0);
 
     targets = gtk_target_table_new_from_list(list, &n_targets);
 
@@ -240,6 +260,19 @@ auto ClipboardHandler::copy() -> bool {
     gtk_target_list_unref(list);
 
     g_string_free(svgString, true);
+
+    /*
+     * We know exactly what the clipboard holds now -- record it without waiting for the
+     * owner-change round trip. GTK's macOS backend never emits owner-change (see the comment in
+     * paste()), so without this the flags keep describing the pre-copy clipboard: paste stays
+     * disabled after copying into an empty clipboard, and the first paste after a copy acts on
+     * stale state everywhere.
+     */
+    this->containsText = !text.empty();
+    this->containsXournal = true;
+    this->containsImage = true;
+    this->xournalPasteTarget = atomXournalAlias;
+    this->listener->clipboardPasteEnabled(true);
 
     return true;
 }
@@ -293,16 +326,25 @@ void ClipboardHandler::pasteClipboardText(GtkClipboard* clipboard, const gchar* 
     }
 }
 
-auto gtk_selection_data_targets_include_xournal(GtkSelectionData* selection_data) -> gboolean {
+/**
+ * The Xournal++ clipboard target to paste with, out of the ones the clipboard advertises. The
+ * quartz-safe alias wins over the legacy target because only the alias delivers data on macOS;
+ * the legacy target remains for clipboards filled by stock Xournal++ builds. GDK_NONE if the
+ * clipboard holds no Xournal++ data at all.
+ */
+auto gtk_selection_data_get_xournal_target(GtkSelectionData* selection_data) -> GdkAtom {
     GdkAtom* targets = nullptr;
     gint n_targets = 0;
-    gboolean result = false;
+    GdkAtom result = GDK_NONE;
 
     if (gtk_selection_data_get_targets(selection_data, &targets, &n_targets)) {
         for (int i = 0; i < n_targets; i++) {
-            if (targets[i] == atomXournal) {
-                result = true;
+            if (targets[i] == atomXournalAlias) {
+                result = atomXournalAlias;
                 break;
+            }
+            if (targets[i] == atomXournal) {
+                result = atomXournal;
             }
         }
         g_free(targets);
@@ -314,7 +356,8 @@ auto gtk_selection_data_targets_include_xournal(GtkSelectionData* selection_data
 void ClipboardHandler::receivedClipboardContents(GtkClipboard* clipboard, GtkSelectionData* selectionData,
                                                  ClipboardHandler* handler) {
     handler->containsText = gtk_selection_data_targets_include_text(selectionData);
-    handler->containsXournal = gtk_selection_data_targets_include_xournal(selectionData);
+    handler->xournalPasteTarget = gtk_selection_data_get_xournal_target(selectionData);
+    handler->containsXournal = handler->xournalPasteTarget != GDK_NONE;
     handler->containsImage = gtk_selection_data_targets_include_image(selectionData, false);
 
     handler->listener->clipboardPasteEnabled(handler->containsText || handler->containsXournal ||

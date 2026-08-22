@@ -70,4 +70,11 @@ private:
     bool containsText = false;
     bool containsXournal = false;
     bool containsImage = false;
+
+    /**
+     * Which clipboard target to request when pasting Xournal++ elements: the
+     * quartz-safe alias when the clipboard advertises it, the legacy
+     * "application/xournal" target otherwise. GDK_NONE when neither is present.
+     */
+    GdkAtom xournalPasteTarget = GDK_NONE;
 };
