@@ -1209,7 +1209,19 @@ auto XojPageView::drawOverlays(cairo_t* cr) const -> size_t {
     for (const auto& v: this->overlayViews) {
         v->draw(cr);
     }
-    return this->overlayViews.size();
+
+    size_t drawn = this->overlayViews.size();
+    if (EditSelection* selection = this->xournal->getSelection();
+        selection != nullptr && selection->getView() == this) {
+        // An edit selection owns its elements for as long as it is active, so the
+        // document render above cannot see them. The main window adds the whole
+        // selection in GtkXournal's widget-level pass; clean frames need only the
+        // transformed contents, never its handles or selection tint.
+        selection->paintContentsForFrame(cr);
+        drawn++;
+    }
+
+    return drawn;
 }
 
 /**

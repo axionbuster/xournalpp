@@ -177,8 +177,9 @@ public:  // event handler
     bool paintPage(cairo_t* cr, GdkRectangle* rect);
 
     /**
-     * Draw only the overlays -- the stroke currently under the pen, the selection, the laser
-     * pointer, the geometry tools -- onto a context already set up in page coordinates.
+     * Draw only transient page content -- the stroke currently under the pen, the active
+     * selection's elements, the laser pointer and geometry tools -- onto a context already set up
+     * in page coordinates. Editing handles and aids remain exclusive to the main window.
      *
      * paintPage() does this after blitting its render buffer. The projector needs the overlays
      * without the buffer, because it renders the page itself at its own resolution; none of that
@@ -186,7 +187,7 @@ public:  // event handler
      *
      * Must be called on the UI thread, like the rest of the overlay handling.
      *
-     * @return How many overlay views were drawn -- zero meaning the frame held settled content
+     * @return How many transient items were drawn -- zero meaning the frame held settled content
      *         and nothing else, which is what lets a recorder skip identical frames.
      */
     size_t drawOverlays(cairo_t* cr) const;

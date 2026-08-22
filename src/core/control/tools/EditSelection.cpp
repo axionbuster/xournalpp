@@ -1142,6 +1142,22 @@ void EditSelection::paint(cairo_t* cr, double zoom) {
     }
 }
 
+void EditSelection::paintContentsForFrame(cairo_t* cr) {
+    cairo_save(cr);
+
+    const double frameRotation = snappingHandler.snapAngle(this->rotation, false);
+    if (std::abs(frameRotation) > std::numeric_limits<double>::epsilon()) {
+        const double rx = snappedBounds.x + snappedBounds.width / 2;
+        const double ry = snappedBounds.y + snappedBounds.height / 2;
+        cairo_translate(cr, rx, ry);
+        cairo_rotate(cr, frameRotation);
+        cairo_translate(cr, -rx, -ry);
+    }
+
+    this->contents->paintContentsForFrame(cr, this->x, this->y, this->width, this->height);
+    cairo_restore(cr);
+}
+
 void EditSelection::drawAnchorRotation(cairo_t* cr, double x, double y, double zoom) {
     GdkRGBA selectionColor = view->getSelectionColor();
     gdk_cairo_set_source_rgba(cr, &selectionColor);

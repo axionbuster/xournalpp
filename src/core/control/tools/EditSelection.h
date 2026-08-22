@@ -263,6 +263,15 @@ public:
     void paint(cairo_t* cr, double zoom);
 
     /**
+     * Paint only the selected elements into a context in page coordinates.
+     *
+     * Projector and video frames need the content because it has temporarily been
+     * removed from the page layer, but must not expose the editing rectangle,
+     * handles or tint which belong only to the main window.
+     */
+    void paintContentsForFrame(cairo_t* cr);
+
+    /**
      * Gets the selection's bounding box in view coordinates. This takes document zoom
      * and selection rotation into account.
      */

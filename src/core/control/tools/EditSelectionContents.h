@@ -125,6 +125,15 @@ public:
      */
     void paint(cairo_t* cr, double x, double y, double rotation, double width, double height, double zoom);
 
+    /**
+     * Paint only the selected elements into a page-coordinate context.
+     *
+     * This bypasses the screen-resolution selection buffer used by paint(), so an
+     * independently scaled projector or video frame stays sharp and does not make
+     * the main view's buffer oscillate between two resolutions.
+     */
+    void paintContentsForFrame(cairo_t* cr, double x, double y, double width, double height);
+
     /// Applies the transformation to the selected elements, empties the selection and return the modified elements
     InsertionOrder makeMoveEffective(const xoj::util::Rectangle<double>& bounds,
                                      const xoj::util::Rectangle<double>& snappedBounds, bool preserveAspectRatio);

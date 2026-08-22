@@ -676,6 +676,7 @@ auto XournalView::getDpiScaleFactor() const -> int { return gtk_widget_get_scale
 
 void XournalView::clearSelection() {
     EditSelection* sel = GTK_XOURNAL(widget)->selection;
+    const PageRef selectedPage = sel != nullptr && sel->getView() != nullptr ? sel->getView()->getPage() : PageRef{};
     GTK_XOURNAL(widget)->selection = nullptr;
     delete sel;
 
@@ -683,6 +684,12 @@ void XournalView::clearSelection() {
 
     getCursor()->setMouseSelectionType(CURSOR_SELECTION_NONE);
     control->getToolHandler()->setSelectionEditTools(false, false, false, false);
+
+    if (selectedPage) {
+        if (ProjectorWindow* projector = this->control->peekProjectorWindow(); projector != nullptr) {
+            projector->notifyRepaint(selectedPage);
+        }
+    }
 }
 
 void XournalView::deleteSelection(EditSelection* sel) {
@@ -748,12 +755,21 @@ void XournalView::setSelection(EditSelection* selection) {
 }
 
 void XournalView::repaintSelection(bool evenWithoutSelection) {
+    EditSelection* selection = getSelection();
+
+    // Selection edits bypass RepaintHandler because their handles live at the
+    // widget level. The projector nevertheless draws the selected content, so it
+    // needs the same real-time invalidation while that content moves or changes.
+    if (ProjectorWindow* projector = this->control->peekProjectorWindow(); projector != nullptr) {
+        projector->notifyRepaint(
+                selection != nullptr && selection->getView() != nullptr ? selection->getView()->getPage() : PageRef{});
+    }
+
     if (evenWithoutSelection) {
         gtk_widget_queue_draw(this->widget);
         return;
     }
 
-    EditSelection* selection = getSelection();
     if (selection == nullptr) {
         return;
     }

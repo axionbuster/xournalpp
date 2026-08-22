@@ -541,6 +541,18 @@ void EditSelectionContents::paint(cairo_t* cr, double x, double y, double rotati
     cairo_restore(cr);
 }
 
+void EditSelectionContents::paintContentsForFrame(cairo_t* cr, double x, double y, double width, double height) {
+    if (this->relativeX == -9999999999) {
+        this->relativeX = x;
+        this->relativeY = y;
+    }
+
+    const Rectangle<double> sourceBounds{this->relativeX, this->relativeY, this->originalBounds.width,
+                                         this->originalBounds.height};
+    const Rectangle<double> targetBounds{x, y, width, height};
+    xoj::view::ElementContainerView(this).drawTransformed(cr, sourceBounds, targetBounds);
+}
+
 void EditSelectionContents::serialize(ObjectOutputStream& out) const {
     out.writeObject("EditSelectionContents");
 
