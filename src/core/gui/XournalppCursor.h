@@ -34,6 +34,8 @@ public:
     void setInsidePage(bool insidePage);
     void setIsLinkHighlighted(bool higlighted);
     void activateDrawDirCursor(bool enable, bool shift = false, bool ctrl = false);
+    /// Clear drag-only direction state without touching GTK; used while a handler/widget is being destroyed.
+    void clearDrawDirCursorState();
     void setInputDeviceClass(InputDeviceClass inputDevice);
     void setRotationAngle(double angle);
     void setMirror(bool mirror);

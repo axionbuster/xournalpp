@@ -137,14 +137,29 @@ void XournalppCursor::setInputDeviceClass(InputDeviceClass device) {
 
 // pen or hi-light cursor will be a DrawDir cursor instead
 void XournalppCursor::activateDrawDirCursor(bool enable, bool shift, bool ctrl) {
+    if (this->drawDirActive == enable && this->drawDirShift == shift && this->drawDirCtrl == ctrl) {
+        return;
+    }
+
     this->drawDirActive = enable;
     this->drawDirShift = shift;
     this->drawDirCtrl = ctrl;
+    updateCursor();
 }
 
+void XournalppCursor::clearDrawDirCursorState() {
+    this->drawDirActive = false;
+    this->drawDirShift = false;
+    this->drawDirCtrl = false;
+}
 
 void XournalppCursor::setMouseDown(bool mouseDown) {
-    if (this->mouseDown == mouseDown) {
+    // Draw-direction glyphs belong to one drag only. Clear one before checking mouseDown: broken
+    // or overlapping device sequences can start a replacement press while mouseDown is already
+    // true, and a release can otherwise leave the old glyph selected until another motion event.
+    const bool clearedDrawDir = this->drawDirActive;
+    clearDrawDirCursorState();
+    if (this->mouseDown == mouseDown && !clearedDrawDir) {
         return;
     }
 
@@ -153,7 +168,7 @@ void XournalppCursor::setMouseDown(bool mouseDown) {
     ToolType type = handler->getToolType();
 
     // Not always an update is needed
-    if (type == TOOL_HAND || type == TOOL_VERTICAL_SPACE || type == TOOL_ERASER) {
+    if (clearedDrawDir || type == TOOL_HAND || type == TOOL_VERTICAL_SPACE || type == TOOL_ERASER) {
         updateCursor();
     }
 }

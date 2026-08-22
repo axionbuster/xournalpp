@@ -35,6 +35,12 @@ BaseShapeHandler::BaseShapeHandler(Control* control, const PageRef& page, bool f
 }
 
 BaseShapeHandler::~BaseShapeHandler() {
+    // Page teardown destroys handlers after their widget has begun disappearing. Clear the global
+    // drag-only state without asking GTK to redraw; live cancellations and releases refresh via
+    // cancelStroke()/setMouseDown().
+    if (XournalppCursor* cursor = control->getCursor(); cursor != nullptr) {
+        cursor->clearDrawDirCursorState();
+    }
     // A handler dropped mid-drag (see the stale-handler cleanup in XojPageView::onButtonPressEvent)
     // must not take a grabbed stroke with it.
     restoreGrabbedStroke();
@@ -54,6 +60,9 @@ void BaseShapeHandler::updateShape(bool isAltDown, bool isShiftDown, bool isCont
 }
 
 void BaseShapeHandler::cancelStroke() {
+    // Sequence cancellation can arrive directly when a second touch takes over, without a later
+    // button release. Return from the Shift/Ctrl direction glyph to the shared pointer now.
+    control->getCursor()->activateDrawDirCursor(false);
     this->shape.clear();
     Range repaintRange = this->lastSnappingRange;
     repaintRange.addPadding(0.5 * this->stroke->getWidth());
