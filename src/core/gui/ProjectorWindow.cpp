@@ -563,6 +563,11 @@ void ProjectorWindow::notifyPointerMoved() {
     }
 }
 
+void ProjectorWindow::invalidateFrameCache() {
+    this->frameCache.invalidate();
+    queueRedraw();
+}
+
 void ProjectorWindow::notifyRepaint(const PageRef& page) {
     if (!this->visible) {
         return;

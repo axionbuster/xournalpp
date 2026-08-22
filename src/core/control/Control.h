@@ -421,6 +421,16 @@ public:
     void bumpCanvasRevision();
 
     /**
+     * A selection has taken elements out of the document model, or returned them to it.
+     *
+     * Frame caches must not bridge that ownership hand-off: a cached settled page may otherwise
+     * draw the selected elements underneath the live selection, or briefly omit them after the
+     * selection is finalized. This invalidates both clean-frame consumers at the transition only;
+     * moving an established selection remains an inexpensive overlay repaint.
+     */
+    void selectionStateChanged();
+
+    /**
      * A tool view has just been drawn into the main view's page buffer -- a finished stroke,
      * mostly. Patches the projector's and the recorder's kept pictures the same way, so the
      * stroke never flickers out of them, then bumps the canvas revision so their background

@@ -2874,6 +2874,15 @@ auto Control::getCanvasRevision() const -> std::uint64_t {
 
 void Control::bumpCanvasRevision() { this->canvasRevision.fetch_add(1, std::memory_order_relaxed); }
 
+void Control::selectionStateChanged() {
+    if (this->videoRecorder) {
+        this->videoRecorder->invalidateFrameCache();
+    }
+    if (this->projectorWindow) {
+        this->projectorWindow->invalidateFrameCache();
+    }
+}
+
 void Control::toolViewSettled(const PageRef& page, const xoj::view::ToolView* v) {
     if (this->videoRecorder) {
         this->videoRecorder->onToolViewSettled(page, v);

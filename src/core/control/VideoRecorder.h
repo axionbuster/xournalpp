@@ -206,6 +206,9 @@ public:
      */
     void setUnexpectedExitCallback(std::function<void(const std::string& message)> callback);
 
+    /// Drop the settled-page picture after selected elements enter or leave the document model.
+    void invalidateFrameCache();
+
     /**
      * A finished stroke was just drawn into the main view's buffer; draw it into the kept frame
      * picture too, so it never flickers out of the recording. See FrameCache::drawSettled.

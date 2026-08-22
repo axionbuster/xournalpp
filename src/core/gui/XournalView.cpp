@@ -676,9 +676,14 @@ auto XournalView::getDpiScaleFactor() const -> int { return gtk_widget_get_scale
 
 void XournalView::clearSelection() {
     EditSelection* sel = GTK_XOURNAL(widget)->selection;
+    const bool hadSelection = sel != nullptr;
     const PageRef selectedPage = sel != nullptr && sel->getView() != nullptr ? sel->getView()->getPage() : PageRef{};
     GTK_XOURNAL(widget)->selection = nullptr;
     delete sel;
+
+    if (hadSelection) {
+        control->selectionStateChanged();
+    }
 
     control->setClipboardHandlerSelection(getSelection());
 
@@ -711,6 +716,7 @@ void XournalView::deleteSelection(EditSelection* sel) {
 void XournalView::setSelection(EditSelection* selection) {
     clearSelection();
     GTK_XOURNAL(this->widget)->selection = selection;
+    control->selectionStateChanged();
 
     control->setClipboardHandlerSelection(getSelection());
 

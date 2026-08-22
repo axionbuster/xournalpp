@@ -973,6 +973,8 @@ void VideoRecorder::setUnexpectedExitCallback(std::function<void(const std::stri
     this->unexpectedExitCallback = std::move(callback);
 }
 
+void VideoRecorder::invalidateFrameCache() { this->frameCache.invalidate(); }
+
 void VideoRecorder::onToolViewSettled(const PageRef& page, const xoj::view::ToolView* v) {
     if (this->running) {
         this->frameCache.drawSettled(page, v);
