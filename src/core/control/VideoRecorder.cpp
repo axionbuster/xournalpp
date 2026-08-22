@@ -226,6 +226,24 @@ auto encoderWorks(const fs::path& ffmpeg, const std::string& codec, int quality)
 
 }  // namespace
 
+auto VideoRecorder::pickVideoCodec(const std::string& listedEncoders,
+                                   const std::function<bool(const std::string& codec)>& encoderWorks)
+        -> std::string {
+    for (const char* candidate: ENCODER_CANDIDATES) {
+        if (listedEncoders.find(candidate) == std::string::npos) {
+            continue;
+        }
+        if (encoderWorks(candidate)) {
+            return candidate;
+        }
+        g_message("VideoRecorder: %s is built in but does not encode here; trying the next one", candidate);
+    }
+
+    // Nothing answered. libx264 is the encoder most likely to exist at all, and a recording that
+    // runs slowly beats one that refuses to start.
+    return "libx264";
+}
+
 auto VideoRecorder::detectVideoCodec(const fs::path& ffmpeg, int quality) -> std::string {
     if (ffmpeg.empty()) {
         return "libx264";
@@ -245,24 +263,8 @@ auto VideoRecorder::detectVideoCodec(const fs::path& ffmpeg, int quality) -> std
         }
     }
 
-    const std::string listed = listEncoders(ffmpeg);
-    std::string chosen;
-    for (const char* candidate: ENCODER_CANDIDATES) {
-        if (listed.find(candidate) == std::string::npos) {
-            continue;
-        }
-        if (encoderWorks(ffmpeg, candidate, quality)) {
-            chosen = candidate;
-            break;
-        }
-        g_message("VideoRecorder: %s is built in but does not encode here; trying the next one", candidate);
-    }
-
-    if (chosen.empty()) {
-        // Nothing answered. libx264 is the encoder most likely to exist at all, and a recording
-        // that runs slowly beats one that refuses to start.
-        chosen = "libx264";
-    }
+    const std::string chosen = pickVideoCodec(
+            listEncoders(ffmpeg), [&](const std::string& codec) { return encoderWorks(ffmpeg, codec, quality); });
     g_message("VideoRecorder: encoding with %s", chosen.c_str());
 
     const std::lock_guard<std::mutex> guard(lock);

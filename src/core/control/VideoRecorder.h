@@ -303,6 +303,18 @@ public:
      */
     static std::string detectVideoCodec(const fs::path& ffmpeg, int quality);
 
+    /**
+     * The choice detectVideoCodec() makes, separated from the probing that feeds it.
+     *
+     * @p listedEncoders is what `ffmpeg -encoders` printed, and @p encoderWorks answers whether a
+     * named encoder really encodes here. The walk goes hardware first and settles on the first
+     * candidate that is both listed and works, or "libx264" when none is. Spawns nothing itself,
+     * so a test can hand in a fake probe and pin the walk down on any machine -- which encoder a
+     * real probe would bless depends on what is in the slot, and a test suite must not.
+     */
+    static std::string pickVideoCodec(const std::string& listedEncoders,
+                                      const std::function<bool(const std::string& codec)>& encoderWorks);
+
     /// @p configured unless it is empty or "auto", in which case detectVideoCodec() decides.
     static std::string resolveVideoCodec(const fs::path& ffmpeg, const std::string& configured, int quality);
 
