@@ -364,6 +364,7 @@ void XournalView::onSettingsChanged() {
     // and let the native cursor adopt the matching blank/affordance policy without waiting for the
     // next motion event.
     gtk_widget_queue_draw(this->widget);
+    this->control->bumpLiveFrameGeneration();
     this->getCursor()->updateCursor();
 }
 
@@ -433,6 +434,10 @@ void XournalView::repaintPointerMarkerAt(const xoj::util::Point<double>& positio
 void XournalView::repaintPointerMarker() const {
     if (this->pointerPosition) {
         repaintPointerMarkerAt(*this->pointerPosition);
+        Settings* settings = this->control->getSettings();
+        if (settings->isVideoRecordingShowPointer() && settings->getVideoRecordingPointerSize() > 0.0) {
+            this->control->bumpLiveFrameGeneration();
+        }
     }
 }
 
@@ -445,11 +450,14 @@ void XournalView::pointerViewportChanged() {
 }
 
 void XournalView::pointerMoved() {
-    // The recorder needs no telling -- it draws every frame regardless -- but the projector
-    // repaints only when something changes, and a marker following a hand changes constantly.
-    // Reached through Control, as RepaintHandler does, so that nothing needs re-registering when
-    // this view is rebuilt, and peeked at rather than fetched, so that a user who has never opened
-    // the projector does not get one conjured by moving the mouse.
+    // The recorder coalesces movement into its next low-priority frame; the projector repaints on
+    // demand. Reached through Control, as RepaintHandler does, so nothing needs re-registering when
+    // this view is rebuilt, and peeked at rather than fetched, so moving the mouse cannot conjure a
+    // projector window the user never opened.
+    Settings* settings = this->control->getSettings();
+    if (settings->isVideoRecordingShowPointer() && settings->getVideoRecordingPointerSize() > 0.0) {
+        this->control->bumpLiveFrameGeneration();
+    }
     if (ProjectorWindow* projector = this->control->peekProjectorWindow(); projector != nullptr) {
         projector->notifyPointerMoved();
     }
@@ -728,6 +736,8 @@ void XournalView::zoomChanged() {
 
     this->control->getScheduler()->blockRerenderZoom();
 
+    // Stateful overlays are rebuilt for the new zoom even when the pointer marker is hidden.
+    this->control->bumpLiveFrameGeneration();
     gtk_widget_queue_draw(getWidget());
 }
 
@@ -877,9 +887,10 @@ void XournalView::setSelection(EditSelection* selection) {
 void XournalView::repaintSelection(bool evenWithoutSelection) {
     EditSelection* selection = getSelection();
 
-    // Selection edits bypass RepaintHandler because their handles live at the
-    // widget level. The projector nevertheless draws the selected content, so it
-    // needs the same real-time invalidation while that content moves or changes.
+    // Selection edits bypass RepaintHandler because their handles live at the widget level. Both
+    // clean-frame consumers nevertheless draw the selected content, so they need the same
+    // real-time invalidation while that content moves or changes.
+    this->control->bumpLiveFrameGeneration();
     if (ProjectorWindow* projector = this->control->peekProjectorWindow(); projector != nullptr) {
         projector->notifyRepaint(
                 selection != nullptr && selection->getView() != nullptr ? selection->getView()->getPage() : PageRef{});

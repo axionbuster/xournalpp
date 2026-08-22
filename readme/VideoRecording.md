@@ -78,8 +78,8 @@ Unlike the caption guide, this is drawn into the recording -- and, being part of
 into the projector as well. That is deliberate: the projector is how you check what is being
 recorded, so it has to show what the recording shows. The live canvas redraws only the small regions
 at the old and new marker positions. `XournalView` also tells the projector the pointer moved, once
-per motion event; the projector's own clock still decides when to repaint, so the rate stays capped
-however fast the tablet reports.
+per motion event, and advances the recorder's live-frame generation. Each consumer's own clock
+still decides when to repaint, so the rate stays capped however fast the tablet reports.
 
 ## How the two streams get into one file
 
@@ -91,6 +91,10 @@ rate the configured frame rate asks for, repeating the last frame when nothing h
 emits exactly as many frames as wall-clock time says it should: raw video carries no timestamps, so
 the length of the video track is purely a matter of how many frames were sent, and getting that
 count right is what keeps the picture level with the sound over a long recording.
+
+The UI-side render clock runs at GLib's default-idle priority. Pen input, normal interface work and
+GTK's own redraws therefore go first; if they keep the UI thread busy, the writer repeats its latest
+frame rather than making the pen wait behind an eight-megabyte frame copy.
 
 Sound comes from the same PortAudio capture the audio recorder has always used, written as 32-bit
 floats to a second pipe on descriptor 3. The device, sample rate and gain are the ones under
@@ -142,9 +146,11 @@ exactly while someone is writing, and the recording looks fine afterwards, becau
 all produced: the cost lands on the person at the keyboard, not on the file.
 
 So a page is drawn once and the picture kept. The kept picture holds the page's settled content;
-ink still under the pen is an overlay and is drawn afresh on every frame, which is what makes
-writing appear as it is written. `Control::getCanvasRevision()` says when the settled content has
-moved -- a stroke finished, an undo, a background swapped, a layer hidden. On the same page a
+ink still under the pen is an overlay and is drawn afresh whenever live pixels change, which is what
+makes writing appear as it is written. A cheap activity snapshot combines repaint/pointer
+generation, `Control::getCanvasRevision()`, frame-cache generation and the current page. The first
+counter covers active ink, selections and laser/geometry overlays; the revision covers settled
+content -- a stroke finished, an undo, a background swapped, a layer hidden. On the same page a
 frame falls to **0.55 ms**, which is 3% of a core rather than 226%.
 
 Renewing the picture is itself kept off the UI thread, because the renewals were the last thing
@@ -169,13 +175,16 @@ silently stops following the page is a worse failure than a slow one. Every rout
 known to take says so, including the ones that reach the page without ever passing through
 `RepaintHandler` -- an undo takes exactly that route, which is why the projector used to show one
 only after the next stroke shook it loose. And whatever anybody reports, a picture more than a
-quarter of a second old is renewed regardless -- in the background, so the safety net costs
-nothing on the thread that matters.
+quarter of a second old is checked regardless. That bounded watchdog catches unreported live and
+settled changes; full-page renewal still runs in the background, so the safety net costs little on
+the thread that matters.
 
-The recorder also skips frames that cannot differ from the last one: same kept picture, same page,
-no overlays on either side means the pixels are identical, so nothing is packed and the writer
-just re-sends its copy on schedule, which is what it does between frames anyway. Most of a lecture
-is a still page being talked about, and a still page now costs approximately nothing.
+The recorder skips before drawing when that complete activity snapshot is unchanged, even if a
+stationary pointer or selection is present. At 60 Hz the watchdog reduces an unchanged second from
+60 full 1080p draws to four safety draws. It also skips packing after a safety draw proves identical:
+same kept picture, same page and no overlays means the writer can just re-send its copy on schedule.
+Most of a lecture is a still page being talked about, and a still page now costs approximately
+nothing.
 
 The projector repaints on a clock of its own for the same reason, at thirty frames a second rather
 than once per motion event: a tablet sends motion far faster than anyone can see, and each one used
@@ -399,10 +408,11 @@ the clock, in the spirit of OBS's status bar. It is switched on by default and t
 
 The reading says which rate it is showing, because two different ones matter at different times:
 
-- **`REC 59.8 fps`** while a video is being recorded -- the recording's own rate. Frames are drawn
-  on the user interface thread, so this falling below the configured rate says that thread is not
-  keeping up, and every frame it misses is a frame the encoder repeats. That is the whole reason
-  for the feature: a lecture that stuttered is worth knowing about while it is still being given.
+- **`REC 59.8 fps`** while a video is being recorded -- how often the UI thread services the
+  recording clock. An unchanged opportunity may skip drawing entirely without lowering the number;
+  the number falls when higher-priority input/UI work delays the clock, and every delayed frame is
+  one the encoder repeats. That is the whole reason for the feature: a lecture that stuttered is
+  worth knowing about while it is still being given.
 - **`29.9 fps`** with nothing being recorded -- the projector's redraw clock, which runs at 30 Hz.
 
 What is measured on the projector's side is the clock, not the paints. The window only repaints

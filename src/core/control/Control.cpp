@@ -2872,7 +2872,16 @@ auto Control::getCanvasRevision() const -> std::uint64_t {
     return this->canvasRevision.load(std::memory_order_relaxed);
 }
 
-void Control::bumpCanvasRevision() { this->canvasRevision.fetch_add(1, std::memory_order_relaxed); }
+void Control::bumpCanvasRevision() {
+    this->canvasRevision.fetch_add(1, std::memory_order_relaxed);
+    bumpLiveFrameGeneration();
+}
+
+auto Control::getLiveFrameGeneration() const -> std::uint64_t {
+    return this->liveFrameGeneration.load(std::memory_order_relaxed);
+}
+
+void Control::bumpLiveFrameGeneration() { this->liveFrameGeneration.fetch_add(1, std::memory_order_relaxed); }
 
 void Control::selectionStateChanged() {
     if (this->videoRecorder) {
@@ -2881,6 +2890,7 @@ void Control::selectionStateChanged() {
     if (this->projectorWindow) {
         this->projectorWindow->invalidateFrameCache();
     }
+    bumpLiveFrameGeneration();
 }
 
 void Control::toolViewSettled(const PageRef& page, const xoj::view::ToolView* v) {

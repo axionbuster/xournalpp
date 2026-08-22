@@ -395,10 +395,11 @@ public:
      * How fast the video recording is really going, in frames per second, and the rate it is aiming
      * for. Both 0 when no video is being recorded.
      *
-     * Frames are drawn on this thread, so the first number falling below the second says the user
-     * interface is not keeping up -- with the pen as much as with the recording. That is worth
-     * having in front of you while there is still time to close something, which is why both the
-     * projector and the record button can show it. See VideoRecorder::getRenderRate.
+     * New frames and the clock that asks for them are serviced on this thread, so the first number
+     * falling below the second says the user interface is not keeping up -- with the pen as much as
+     * with the recording. That is worth having in front of you while there is still time to close
+     * something, which is why both the projector and the record button can show it. See
+     * VideoRecorder::getRenderRate.
      */
     double getVideoFrameRate() const;
     int getVideoTargetFrameRate() const;
@@ -419,6 +420,16 @@ public:
 
     /// Say that the settled content of a page has changed. Cheap; safe from any thread.
     void bumpCanvasRevision();
+
+    /**
+     * Changes whenever a live canvas frame may differ even though settled page content does not:
+     * pointer motion, ink still under the pen, selections, laser/geometry overlays and repaints.
+     * The video recorder coalesces multiple changes by sampling this counter on its next idle tick.
+     */
+    std::uint64_t getLiveFrameGeneration() const;
+
+    /// Say that live canvas pixels may have changed. Cheap; safe from any thread.
+    void bumpLiveFrameGeneration();
 
     /**
      * A selection has taken elements out of the document model, or returned them to it.
@@ -707,6 +718,9 @@ private:
 
     /// See getCanvasRevision(). Atomic because a render job may finish on a worker thread.
     std::atomic<std::uint64_t> canvasRevision{1};
+
+    /// See getLiveFrameGeneration(). Repaint requests and pointer events advance it on the UI thread.
+    std::atomic<std::uint64_t> liveFrameGeneration{1};
 
     /**
      * Created the first time the projector is opened and then kept, so that closing and reopening

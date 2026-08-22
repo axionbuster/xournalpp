@@ -637,6 +637,23 @@ auto VideoRecorderConfig::describeCommandLine(const fs::path& file) const -> std
 // 4. Starting and stopping
 // ===========================================================================================
 
+bool xoj::video::FrameRenderGate::shouldRender(const FrameActivitySnapshot& activity, gint64 now) const {
+    return !this->hasRendered || activity != this->lastRenderedActivity || now < this->lastRenderedAt ||
+           now - this->lastRenderedAt >= UNREPORTED_ACTIVITY_WATCHDOG;
+}
+
+void xoj::video::FrameRenderGate::markRendered(const FrameActivitySnapshot& activity, gint64 now) {
+    this->lastRenderedActivity = activity;
+    this->lastRenderedAt = now;
+    this->hasRendered = true;
+}
+
+void xoj::video::FrameRenderGate::reset() {
+    this->lastRenderedActivity = {};
+    this->lastRenderedAt = 0;
+    this->hasRendered = false;
+}
+
 VideoRecorder::VideoRecorder(Control& control): control(control) {}
 
 VideoRecorder::~VideoRecorder() {
@@ -737,7 +754,10 @@ auto VideoRecorder::start(const fs::path& file, std::string* error) -> bool {
     this->recentErrors.clear();
     this->stopping = false;
     this->renderTimeTotal = 0;
+    this->renderTickCount = 0;
     this->renderCount = 0;
+    this->publishedFrameCount = 0;
+    this->unchangedTickCount = 0;
     this->renderMeter.reset();
     this->outputMeter.reset();
     this->hasPending = false;
@@ -747,6 +767,7 @@ auto VideoRecorder::start(const fs::path& file, std::string* error) -> bool {
     this->lastFramePage = PageRef{};
     this->lastFrameGeneration = 0;
     this->lastFrameHadOverlays = false;
+    this->frameRenderGate.reset();
 
     this->stderrChannel = g_io_channel_unix_new(childStderr);
     g_io_channel_set_encoding(this->stderrChannel, nullptr, nullptr);
@@ -760,7 +781,7 @@ auto VideoRecorder::start(const fs::path& file, std::string* error) -> bool {
 
     // The first frame goes in before anything else, so that a recording started on a still canvas
     // is not a stretch of nothing until the pen next moves.
-    renderFrame();
+    renderAndMeasureFrame();
 
 #ifdef ENABLE_AUDIO
     if (audioPipe[0] >= 0) {
@@ -772,7 +793,8 @@ auto VideoRecorder::start(const fs::path& file, std::string* error) -> bool {
     this->writerThread = std::thread([this] { this->writerLoop(); });
 
     const int intervalMs = std::max(1, 1000 / std::max(1, config.fps));
-    this->renderTimer = g_timeout_add(static_cast<guint>(intervalMs), &VideoRecorder::onRenderTick, this);
+    this->renderTimer = g_timeout_add_full(xoj::video::FRAME_RENDER_SOURCE_PRIORITY, static_cast<guint>(intervalMs),
+                                           &VideoRecorder::onRenderTick, this, nullptr);
 
     return true;
 }
@@ -848,8 +870,10 @@ void VideoRecorder::stop() {
     teardown();
 
     if (this->renderCount > 0) {
-        g_message("VideoRecorder: wrote %s (%lld frames drawn, %.1f ms each on average)",
-                  this->filename.string().c_str(), this->renderCount,
+        g_message("VideoRecorder: wrote %s (%lld timer ticks, %lld canvases drawn, %lld frames packed, "
+                  "%lld unchanged ticks skipped, %.1f ms per canvas on average)",
+                  this->filename.string().c_str(), this->renderTickCount, this->renderCount,
+                  this->publishedFrameCount, this->unchangedTickCount,
                   static_cast<double>(this->renderTimeTotal) / static_cast<double>(this->renderCount) / 1000.0);
     }
     this->filename.clear();
@@ -990,15 +1014,13 @@ auto VideoRecorder::onRenderTick(gpointer data) -> gboolean {
     if (!self->running) {
         return G_SOURCE_REMOVE;
     }
-    // Every tick, unconditionally. An earlier version only redrew when something had told it the
-    // canvas had changed, which is most of the time nothing at all -- but a change reaching the
-    // page by a route that does not send that signal (an undo, a background change, a layer being
-    // hidden) then never reached the video either, and a recording that silently stops following
-    // the page is worse than one that costs a few percent of a core.
-    const gint64 before = g_get_monotonic_time();
-    self->renderFrame();
-    self->renderTimeTotal += g_get_monotonic_time() - before;
-    self->renderCount++;
+    self->renderTickCount++;
+    const gint64 now = g_get_monotonic_time();
+    if (self->frameRenderGate.shouldRender(self->captureFrameActivity(), now)) {
+        self->renderAndMeasureFrame();
+    } else {
+        self->unchangedTickCount++;
+    }
     // Counted here rather than where a frame is handed over, because a frame identical to the last
     // one is deliberately not handed over and is not a frame missed. What this measures is whether
     // the timer is being serviced at the rate the recording was configured for.
@@ -1012,9 +1034,30 @@ auto VideoRecorder::getOutputRate() const -> double { return this->running ? thi
 
 auto VideoRecorder::getTargetRate() const -> int { return this->running ? this->config.fps : 0; }
 
-void VideoRecorder::renderFrame() {
+xoj::video::FrameActivitySnapshot VideoRecorder::captureFrameActivity() const {
+    return {this->control.getLiveFrameGeneration(), this->control.getCanvasRevision(),
+            this->frameCache.getGeneration(), this->frameCache.getRefreshGeneration(),
+            this->control.getCurrentPageNo()};
+}
+
+void VideoRecorder::renderAndMeasureFrame() {
+    const gint64 before = g_get_monotonic_time();
+    if (renderFrame()) {
+        this->publishedFrameCount++;
+    }
+    const gint64 after = g_get_monotonic_time();
+    this->renderTimeTotal += after - before;
+    this->renderCount++;
+
+    // Sample after drawing: a synchronous first-page render and a landed background refresh can
+    // advance the cache generation during this call. Recording the pre-render snapshot would make
+    // the next tick redraw the same pixels once more.
+    this->frameRenderGate.markRendered(captureFrameActivity(), after);
+}
+
+bool VideoRecorder::renderFrame() {
     if (this->surface == nullptr) {
-        return;
+        return false;
     }
 
     cairo_t* cr = cairo_create(this->surface);
@@ -1031,7 +1074,7 @@ void VideoRecorder::renderFrame() {
     const std::uint64_t generation = this->frameCache.getGeneration();
     if (!layout.overlaysDrawn && !this->lastFrameHadOverlays && layout.page == this->lastFramePage &&
         generation == this->lastFrameGeneration) {
-        return;
+        return false;
     }
     this->lastFramePage = layout.page;
     this->lastFrameGeneration = generation;
@@ -1042,7 +1085,7 @@ void VideoRecorder::renderFrame() {
     const int stride = cairo_image_surface_get_stride(this->surface);
     const unsigned char* pixels = cairo_image_surface_get_data(this->surface);
     if (pixels == nullptr) {
-        return;
+        return false;
     }
 
     const size_t rowBytes = static_cast<size_t>(frameWidth) * 4;
@@ -1075,6 +1118,7 @@ void VideoRecorder::renderFrame() {
         this->hasPending = true;
     }
     this->frameReady.notify_one();
+    return true;
 }
 
 void VideoRecorder::writerLoop() {

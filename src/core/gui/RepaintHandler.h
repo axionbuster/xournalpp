@@ -35,10 +35,10 @@ public:
 
 private:
     /**
-     * Mirror a repaint of @p view into the projector window, if one is open and showing that page.
-     * Cheap when the projector is closed, which is the usual case.
+     * Report live canvas activity to the recorder and mirror the repaint into the projector window,
+     * if one is open and showing that page.
      */
-    void notifyProjector(const XojPageView* view) const;
+    void notifyFrameConsumers(const XojPageView* view) const;
 
     XournalView* xournal;
 };

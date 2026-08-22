@@ -58,6 +58,20 @@ struct FrameLayout {
     [[nodiscard]] bool isEmpty() const { return width <= 0.0 || height <= 0.0; }
 };
 
+/** Inputs to the UI-thread validity check for a completed background frame refresh. */
+struct FrameRefreshValidity {
+    bool cacheHasSurface = false;
+    bool pageMatches = false;
+    bool sizeMatches = false;
+    std::uint64_t cacheEpoch = 0;
+    std::uint64_t renderedEpoch = 0;
+    std::uint64_t currentCanvasRevision = 0;
+    std::uint64_t renderedRevision = 0;
+};
+
+/** Whether a background render still answers the live cache's question when it reaches the UI. */
+bool canAdoptFrameRefresh(const FrameRefreshValidity& validity);
+
 /**
  * The last drawn picture of a page, kept so that the next frame does not have to draw it again.
  *
@@ -120,6 +134,12 @@ public:
      */
     std::uint64_t getGeneration() const;
 
+    /**
+     * Changes when cache lifecycle work must be observed even though pixels did not change -- in
+     * particular when an obsolete refresh is rejected and the latest revision needs another kick.
+     */
+    std::uint64_t getRefreshGeneration() const;
+
 private:
     friend FrameLayout drawCurrentPage(Control*, cairo_t*, double, double, Color, FrameCache*);
     friend class FrameRefreshJob;
@@ -130,7 +150,7 @@ private:
     /// UI-thread completion of a background render: adopt the surface if it still fits.
     void completeRefresh(xoj::util::CairoSurfaceSPtr renderedSurface, const PageRef& renderedPage, int renderedWidth,
                          int renderedHeight, std::uint64_t renderedRevision, std::uint64_t renderedEpoch,
-                         gint64 startedAt);
+                         std::uint64_t currentCanvasRevision, gint64 startedAt);
 
     /// The page's settled content, at exactly the size it is drawn on screen. Null when empty.
     xoj::util::CairoSurfaceSPtr surface;
@@ -146,6 +166,9 @@ private:
 
     /// See getGeneration().
     std::uint64_t generation = 0;
+
+    /// See getRefreshGeneration(). Kept separate so a rejected job does not imply new pixels.
+    std::uint64_t refreshGeneration = 0;
 
     /// One background render at a time; a second request just lets the staleness check re-fire.
     bool refreshInFlight = false;

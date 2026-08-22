@@ -124,6 +124,12 @@ bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double page
 
 }  // namespace
 
+bool canAdoptFrameRefresh(const FrameRefreshValidity& validity) {
+    return validity.cacheHasSurface && validity.pageMatches && validity.sizeMatches &&
+           validity.cacheEpoch == validity.renderedEpoch &&
+           validity.currentCanvasRevision == validity.renderedRevision;
+}
+
 /**
  * One background re-render of a FrameCache's picture, run on the scheduler's worker thread the
  * same way the main view's own RenderJob is. Everything it needs was captured on the UI thread
@@ -161,9 +167,10 @@ protected:
 
         Util::execInUiThread([token = this->aliveToken, surface = std::move(rendered), page = this->page,
                               w = this->width, h = this->height, rev = this->revision, epoch = this->invalidationEpoch,
-                              at = this->startedAt]() mutable {
+                              at = this->startedAt, control = this->control]() mutable {
             if (FrameCache* cache = *token; cache != nullptr) {
-                cache->completeRefresh(std::move(surface), page, w, h, rev, epoch, at);
+                cache->completeRefresh(std::move(surface), page, w, h, rev, epoch,
+                                       control->getCanvasRevision(), at);
             }
         });
     }
@@ -188,6 +195,7 @@ void FrameCache::invalidate() {
     this->surface.reset();
     this->page = PageRef{};
     this->invalidationEpoch++;
+    this->refreshGeneration++;
     // In-flight renders die on arrival even if the same page is rebuilt before they finish:
     // completeRefresh also requires the invalidation epoch captured when the job started.
 }
@@ -195,6 +203,8 @@ void FrameCache::invalidate() {
 void FrameCache::setRefreshedCallback(std::function<void()> callback) { this->onRefreshed = std::move(callback); }
 
 auto FrameCache::getGeneration() const -> std::uint64_t { return this->generation; }
+
+auto FrameCache::getRefreshGeneration() const -> std::uint64_t { return this->refreshGeneration; }
 
 void FrameCache::drawSettled(const PageRef& settledPage, const xoj::view::ToolView* v) {
     if (!this->surface || this->page != settledPage) {
@@ -229,14 +239,24 @@ void FrameCache::kickRefresh(Control* control) {
 
 void FrameCache::completeRefresh(xoj::util::CairoSurfaceSPtr renderedSurface, const PageRef& renderedPage,
                                  int renderedWidth, int renderedHeight, std::uint64_t renderedRevision,
-                                 std::uint64_t renderedEpoch, gint64 startedAt) {
+                                 std::uint64_t renderedEpoch, std::uint64_t currentCanvasRevision, gint64 startedAt) {
     this->refreshInFlight = false;
 
     // Adopt only if the picture still answers the current question. A page flip or a resize while
-    // the render was under way has already been handled synchronously; this render is then about
-    // yesterday and is dropped on the floor.
-    if (this->invalidationEpoch != renderedEpoch || !this->surface || this->page != renderedPage ||
-        this->width != renderedWidth || this->height != renderedHeight) {
+    // the render was under way has already been handled synchronously. A newer canvas revision can
+    // also have patched the cache after this job released the document lock but before its idle
+    // completion ran. Either way this render is about yesterday and is dropped on the floor.
+    if (!canAdoptFrameRefresh({static_cast<bool>(this->surface), this->page == renderedPage,
+                               this->width == renderedWidth && this->height == renderedHeight,
+                               this->invalidationEpoch, renderedEpoch, currentCanvasRevision, renderedRevision})) {
+        // The live revision may already have been sampled by the recorder while this job was still
+        // in flight, when kickRefresh() could not start its replacement. Open the activity gate so
+        // the next idle tick retries immediately; do not change the pixel generation, because the
+        // rejected surface never became visible.
+        this->refreshGeneration++;
+        if (this->onRefreshed) {
+            this->onRefreshed();
+        }
         return;
     }
 

@@ -31,6 +31,7 @@
 
 #include <atomic>              // for atomic
 #include <condition_variable>  // for condition_variable
+#include <cstddef>             // for size_t
 #include <cstdint>             // for uint64_t
 #include <functional>          // for function
 #include <memory>              // for unique_ptr
@@ -166,6 +167,46 @@ struct VideoRecorderConfig {
     std::string describeCommandLine(const fs::path& file) const;
 };
 
+namespace xoj::video {
+
+/**
+ * Recorder drawing runs only when input, GTK redraws and ordinary UI work have gone idle. GLib
+ * priorities are ordered from smaller (more urgent) to larger (less urgent).
+ */
+inline constexpr gint FRAME_RENDER_SOURCE_PRIORITY = G_PRIORITY_DEFAULT_IDLE;
+
+/** A bounded safety net for a page change that reached no activity notification. */
+inline constexpr gint64 UNREPORTED_ACTIVITY_WATCHDOG = 250 * 1000;  // microseconds
+
+/** Everything cheap to sample that can make the next recorded frame differ from the last one. */
+struct FrameActivitySnapshot {
+    std::uint64_t liveGeneration = 0;
+    std::uint64_t canvasRevision = 0;
+    std::uint64_t cacheGeneration = 0;
+    std::uint64_t cacheRefreshGeneration = 0;
+    std::size_t pageNo = 0;
+
+    bool operator==(const FrameActivitySnapshot&) const = default;
+};
+
+/**
+ * Decides whether a UI-thread render is useful. The writer has its own clock and repeats its latest
+ * frame while this gate is closed, so an unchanged canvas costs neither a redraw nor an 8 MB copy.
+ */
+class FrameRenderGate {
+public:
+    bool shouldRender(const FrameActivitySnapshot& activity, gint64 now) const;
+    void markRendered(const FrameActivitySnapshot& activity, gint64 now);
+    void reset();
+
+private:
+    FrameActivitySnapshot lastRenderedActivity;
+    gint64 lastRenderedAt = 0;
+    bool hasRendered = false;
+};
+
+}  // namespace xoj::video
+
 class VideoRecorder final {
 public:
     explicit VideoRecorder(Control& control);
@@ -220,11 +261,12 @@ public:
     // ---------------------------------------------------------------------------------------
 
     /**
-     * How often frames are actually being drawn, right now, in hertz. 0 when not recording.
+     * How often the UI thread services recording frame opportunities, right now, in hertz. 0 when
+     * not recording. An unchanged frame may be recognized and skipped without changing this rate.
      *
-     * This is the number worth watching. Frames are drawn on the user interface thread, so a rate
-     * below the configured one means that thread is too busy to keep up -- with the pen, as much as
-     * with the recording -- and the encoder is being handed the same picture twice.
+     * This is the number worth watching. New frames are drawn on the user interface thread, so a
+     * rate below the configured one means that thread is too busy to keep up -- with the pen, as
+     * much as with the recording -- and the encoder is repeating the latest picture.
      */
     double getRenderRate() const;
 
@@ -276,7 +318,9 @@ public:
 private:
     /// UI thread: redraw the canvas into a frame buffer and hand it to the writer. */
     static gboolean onRenderTick(gpointer data);
-    void renderFrame();
+    xoj::video::FrameActivitySnapshot captureFrameActivity() const;
+    void renderAndMeasureFrame();
+    bool renderFrame();
 
     /// Writer thread: emit frames to ffmpeg at a wall-clock-accurate rate.
     void writerLoop();
@@ -317,6 +361,9 @@ private:
     std::uint64_t lastFrameGeneration = 0;
     bool lastFrameHadOverlays = false;
 
+    /// Coalesces reported live changes and supplies a bounded watchdog for unreported ones.
+    xoj::video::FrameRenderGate frameRenderGate;
+
     /**
      * Handoff between the UI thread and the writer. `pending` is a fully packed frame waiting to be
      * collected; `spare` is a buffer neither side needs any more. The frame being written lives on
@@ -335,9 +382,12 @@ private:
 
     std::atomic<bool> stopping{false};
 
-    /// How long drawing frames has cost, for the line printed when a recording finishes.
+    /// Scheduling/work counters, printed when a recording finishes so regressions are measurable.
     gint64 renderTimeTotal = 0;
+    long long renderTickCount = 0;
     long long renderCount = 0;
+    long long publishedFrameCount = 0;
+    long long unchangedTickCount = 0;
 
     /// What the frame rate indicator reads. Ticked on the UI thread and on the writer thread.
     xoj::canvas::FrameRateMeter renderMeter;
