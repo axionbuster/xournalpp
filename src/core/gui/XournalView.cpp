@@ -1,6 +1,7 @@
 #include "XournalView.h"
 
 #include <algorithm>  // for max, min
+#include <cmath>      // for ceil, floor
 #include <iterator>   // for begin
 #include <memory>     // for unique_ptr, make_unique
 #include <optional>   // for optional
@@ -23,6 +24,7 @@
 #include "control/zoom/ZoomControl.h"            // for ZoomControl
 #include "gui/MainWindow.h"                      // for MainWindow
 #include "gui/PdfFloatingToolbox.h"              // for PdfFloatingToolbox
+#include "gui/PointerMarker.h"                   // for drawPointerMarker
 #include "gui/ProjectorWindow.h"                 // for ProjectorWindow
 #include "gui/inputdevices/GeometryToolInputHandler.h"  // for GeometryToolInputHandler
 #include "gui/inputdevices/HandRecognition.h"    // for HandRecognition
@@ -358,22 +360,88 @@ void XournalView::onSettingsChanged() {
     if (this->cache) {
         this->cache->updateSettings(control->getSettings());
     }
+    // Pointer shape, size and visibility all live on this page. Clear the old marker immediately
+    // and let the native cursor adopt the matching blank/affordance policy without waiting for the
+    // next motion event.
+    gtk_widget_queue_draw(this->widget);
+    this->getCursor()->updateCursor();
 }
 
 void XournalView::notePointerPosition(const xoj::util::Point<double>& widgetPosition) {
     if (this->pointerPosition && *this->pointerPosition == widgetPosition) {
         return;
     }
+    const bool wasVisible = isPointerMarkerVisible();
+    if (this->pointerPosition) {
+        repaintPointerMarkerAt(*this->pointerPosition);
+    }
     this->pointerPosition = widgetPosition;
+    repaintPointerMarkerAt(widgetPosition);
     pointerMoved();
+    if (wasVisible != isPointerMarkerVisible()) {
+        this->getCursor()->updateCursor();
+    }
 }
 
 void XournalView::forgetPointerPosition() {
     if (!this->pointerPosition) {
         return;
     }
+    const bool wasVisible = isPointerMarkerVisible();
+    repaintPointerMarkerAt(*this->pointerPosition);
     this->pointerPosition.reset();
     pointerMoved();
+    if (wasVisible) {
+        this->getCursor()->updateCursor();
+    }
+}
+
+double XournalView::getCanvasPointerMarkerDiameter() const {
+    Settings* settings = this->control->getSettings();
+    return xoj::gui::scalePointerMarkerDiameter(settings->getVideoRecordingPointerSize(),
+                                                gtk_widget_get_allocated_height(this->widget),
+                                                settings->getVideoRecordingHeight());
+}
+
+void XournalView::repaintPointerMarkerAt(const xoj::util::Point<double>& position) const {
+    if (!this->control->getSettings()->isVideoRecordingShowPointer()) {
+        return;
+    }
+
+    const double diameter = getCanvasPointerMarkerDiameter();
+    if (diameter <= 0.0) {
+        return;
+    }
+
+    // The ring's dark under-stroke extends to 1.17 radii. Leave a little more room for Cairo's
+    // antialiasing fringe, and redraw the whole widget for deliberately enormous markers rather
+    // than risk overflowing queue_draw_area's integer rectangle.
+    const double extent = diameter * 0.6 + 2.0;
+    const int width = gtk_widget_get_allocated_width(this->widget);
+    const int height = gtk_widget_get_allocated_height(this->widget);
+    if (extent * 2.0 >= std::max(width, height)) {
+        gtk_widget_queue_draw(this->widget);
+        return;
+    }
+
+    const int x = floor_cast<int>(position.x - extent);
+    const int y = floor_cast<int>(position.y - extent);
+    const int size = ceil_cast<int>(2.0 * extent);
+    gtk_widget_queue_draw_area(this->widget, x, y, size, size);
+}
+
+void XournalView::repaintPointerMarker() const {
+    if (this->pointerPosition) {
+        repaintPointerMarkerAt(*this->pointerPosition);
+    }
+}
+
+void XournalView::pointerViewportChanged() {
+    if (!this->pointerPosition) {
+        return;
+    }
+    pointerMoved();
+    this->getCursor()->updateCursor();
 }
 
 void XournalView::pointerMoved() {
@@ -399,6 +467,49 @@ auto XournalView::getPointerPositionInLayout() const -> std::optional<xoj::util:
     // coordinates start at whatever the scrollbars are showing.
     const auto visible = layout->getVisibleRect();
     return xoj::util::Point<double>{this->pointerPosition->x + visible.x, this->pointerPosition->y + visible.y};
+}
+
+bool XournalView::isPointerMarkerVisible() const {
+    Settings* settings = this->control->getSettings();
+    if (!settings->isVideoRecordingShowPointer() || getCanvasPointerMarkerDiameter() <= 0.0) {
+        return false;
+    }
+
+    const auto position = getPointerPositionInLayout();
+    Layout* layout = this->getLayout();
+    return position && layout != nullptr &&
+           layout->getPageViewAt(round_cast<int>(position->x), round_cast<int>(position->y)) != nullptr;
+}
+
+void XournalView::drawPointerMarker(cairo_t* cr) const {
+    Settings* settings = this->control->getSettings();
+    if (!settings->isVideoRecordingShowPointer()) {
+        return;
+    }
+
+    const double diameter = getCanvasPointerMarkerDiameter();
+    const auto position = getPointerPositionInLayout();
+    Layout* layout = this->getLayout();
+    if (diameter <= 0.0 || !position || layout == nullptr) {
+        return;
+    }
+
+    XojPageView* pageView = layout->getPageViewAt(round_cast<int>(position->x), round_cast<int>(position->y));
+    if (pageView == nullptr) {
+        return;
+    }
+
+    ToolHandler* tools = this->control->getToolHandler();
+    const Color color = tools->getToolType() == TOOL_ERASER ? Color(0xFF808080U) : tools->getColor();
+
+    const auto origin = pageView->getPixelPosition();
+    cairo_save(cr);
+    cairo_rectangle(cr, origin.x, origin.y, pageView->getDisplayWidth(), pageView->getDisplayHeight());
+    cairo_clip(cr);
+    xoj::gui::drawPointerMarker(
+            cr, *position,
+            {diameter, tools->getThickness() * this->getZoom(), settings->getVideoRecordingPointerShape(), color});
+    cairo_restore(cr);
 }
 
 // send the focus back to the appropriate widget

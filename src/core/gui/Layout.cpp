@@ -55,14 +55,15 @@ Layout::Layout(XournalView* view, ScrollHandling* scrollHandling): view(view), s
                      xoj::util::wrap_for_g_callback_v<adjustmentReconfigured>, this);
 }
 
-static inline void afterMove(Layout* layout, GtkWidget* w) {
+static inline void afterMove(Layout* layout, XournalView* view, GtkWidget* w) {
     layout->updateVisibility();
+    view->pointerViewportChanged();
     gtk_widget_queue_draw(w);
 }
 
 void Layout::horizontalScrollChanged(GtkAdjustment*, Layout* layout) {
     if (layout->delayUpdate == DelayStatus::NO_DELAY) {
-        afterMove(layout, layout->view->getWidget());
+        afterMove(layout, layout->view, layout->view->getWidget());
     } else {
         layout->delayUpdate = DelayStatus::MUST_RUN_AFTER;
     }
@@ -72,7 +73,7 @@ void Layout::adjustmentReconfigured(GtkAdjustment*, Layout* layout) {
     // No maybeAddLastPage here: reaching the end of the last page by resizing the window is not
     // the reader's "scrolled to the end", and must not append a page the way a real scroll does.
     if (layout->delayUpdate == DelayStatus::NO_DELAY) {
-        afterMove(layout, layout->view->getWidget());
+        afterMove(layout, layout->view, layout->view->getWidget());
     } else {
         layout->delayUpdate = DelayStatus::MUST_RUN_AFTER;
     }
@@ -81,7 +82,7 @@ void Layout::adjustmentReconfigured(GtkAdjustment*, Layout* layout) {
 void Layout::verticalScrollChanged(GtkAdjustment*, Layout* layout) {
     layout->maybeAddLastPage(layout);
     if (layout->delayUpdate == DelayStatus::NO_DELAY) {
-        afterMove(layout, layout->view->getWidget());
+        afterMove(layout, layout->view, layout->view->getWidget());
     } else {
         layout->delayUpdate = DelayStatus::MUST_RUN_AFTER;
     }
@@ -452,7 +453,7 @@ void Layout::recalculate() {
     // visibility cache. Always request one update from the completed geometry, but honor an enclosing delayed scroll.
     if (refreshImmediately) {
         this->delayUpdate = DelayStatus::NO_DELAY;
-        afterMove(this, view->getWidget());
+        afterMove(this, view, view->getWidget());
     } else {
         this->delayUpdate = DelayStatus::MUST_RUN_AFTER;
     }
@@ -501,7 +502,7 @@ void Layout::scrollAbs(double x, double y) {
     gtk_adjustment_set_value(scrollHandling->getVertical(), y);
     if (delayUpdate == DelayStatus::MUST_RUN_AFTER) {
         // At least one of the two values really was changed. Update
-        afterMove(this, this->view->getWidget());
+        afterMove(this, this->view, this->view->getWidget());
     }
     this->delayUpdate = DelayStatus::NO_DELAY;
 }
@@ -513,7 +514,7 @@ void Layout::ensureRectIsVisible(int x, int y, int width, int height) {
     gtk_adjustment_clamp_page(scrollHandling->getVertical(), y - 5, y + height + 10);
     if (delayUpdate == DelayStatus::MUST_RUN_AFTER) {
         // At least one of the two values really was changed. Update
-        afterMove(this, this->view->getWidget());
+        afterMove(this, this->view, this->view->getWidget());
     }
     this->delayUpdate = DelayStatus::NO_DELAY;
 }
@@ -533,7 +534,7 @@ void Layout::scrollRectToTop(int x, int y, int width) {
     gtk_adjustment_set_value(scrollHandling->getVertical(), y - XOURNAL_SCROLL_TARGET_MARGIN);
     if (delayUpdate == DelayStatus::MUST_RUN_AFTER) {
         // At least one of the two values really was changed. Update
-        afterMove(this, this->view->getWidget());
+        afterMove(this, this->view, this->view->getWidget());
     }
     this->delayUpdate = DelayStatus::NO_DELAY;
 }

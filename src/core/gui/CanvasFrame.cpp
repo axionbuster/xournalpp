@@ -1,7 +1,7 @@
 #include "CanvasFrame.h"
 
 #include <algorithm>     // for max, min
-#include <cmath>         // for floor, M_PI
+#include <cmath>         // for floor
 #include <shared_mutex>  // for shared_lock
 #include <utility>       // for move
 
@@ -11,9 +11,9 @@
 #include "control/jobs/Job.h"             // for Job, JOB_TYPE_RENDER
 #include "control/jobs/XournalScheduler.h"  // for XournalScheduler
 #include "control/settings/Settings.h"    // for Settings
-#include "control/settings/SettingsEnums.h"  // for PointerMarkerShape
 #include "gui/MainWindow.h"               // for MainWindow
 #include "gui/PageView.h"                 // for XojPageView
+#include "gui/PointerMarker.h"            // for drawPointerMarker
 #include "gui/XournalView.h"              // for XournalView
 #include "model/Document.h"               // for Document
 #include "model/XojPage.h"                // for XojPage
@@ -105,78 +105,21 @@ bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double page
     // frame is against how tall a recorded one would be, then divided back out of the page scale,
     // so a recording at the configured height draws it at exactly the number asked for and a
     // projector window of any size draws it proportionally.
-    const int frameHeight = std::max(1, settings->getVideoRecordingHeight());
-    const double diameter = settings->getVideoRecordingPointerSize() * (areaHeight / frameHeight) / scale;
+    const double diameter = xoj::gui::scalePointerMarkerDiameter(settings->getVideoRecordingPointerSize(), areaHeight,
+                                                                 settings->getVideoRecordingHeight()) /
+                            scale;
     if (diameter <= 0.0) {
         // A size of zero is a supported way of saying "no marker", not a mistake to guard against.
         return false;
     }
-    const double radius = diameter / 2.0;
 
     ToolHandler* tools = control->getToolHandler();
     // The eraser has no color of its own -- getColor() still answers with the pen's -- so it gets a
     // neutral one rather than a ring in a color it is not about to draw with.
     const Color color = tools->getToolType() == TOOL_ERASER ? Color(0xFF808080U) : tools->getColor();
 
-    cairo_save(cr);
-    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-
-    switch (settings->getVideoRecordingPointerShape()) {
-        case POINTER_MARKER_RING:
-            // Outline only. Hides nothing whatever, at the cost of being the easiest of the three
-            // to lose against a page already covered in ink of the same color -- which is what the
-            // dark edge stroked underneath it is for.
-            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.35);
-            cairo_set_line_width(cr, radius * 0.34);
-            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-            cairo_stroke(cr);
-
-            Util::cairo_set_source_rgbi(cr, color, 0.85);
-            cairo_set_line_width(cr, radius * 0.22);
-            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-            cairo_stroke(cr);
-            break;
-
-        case POINTER_MARKER_DOT:
-            // Solid. The most visible and the most opaque: whatever it covers is gone for as long
-            // as the pen is over it.
-            Util::cairo_set_source_rgbi(cr, color, 1.0);
-            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-            cairo_fill(cr);
-
-            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.30);
-            cairo_set_line_width(cr, std::max(radius * 0.09, 0.4));
-            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-            cairo_stroke(cr);
-            break;
-
-        case POINTER_MARKER_DISK:
-        default:
-            // Translucent, which is what lets a filled shape sit on top of the writing it is
-            // pointing at: what is underneath still shows through.
-            Util::cairo_set_source_rgbi(cr, color, 0.35);
-            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-            cairo_fill(cr);
-
-            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.30);
-            cairo_set_line_width(cr, std::max(radius * 0.09, 0.4));
-            cairo_arc(cr, x, y, radius, 0.0, 2.0 * M_PI);
-            cairo_stroke(cr);
-            break;
-    }
-
-    // The tip itself, solid and at the width the pen would draw, so the marker says exactly where
-    // the ink would land and not merely the neighborhood. A solid dot is already its own tip mark
-    // and would only be given a darker freckle by this.
-    if (settings->getVideoRecordingPointerShape() != POINTER_MARKER_DOT) {
-        const double tip = std::clamp(tools->getThickness() / 2.0, radius * 0.12, radius * 0.4);
-        Util::cairo_set_source_rgbi(cr, color, 0.95);
-        cairo_arc(cr, x, y, tip, 0.0, 2.0 * M_PI);
-        cairo_fill(cr);
-    }
-
-    cairo_restore(cr);
-    return true;
+    return xoj::gui::drawPointerMarker(
+            cr, {x, y}, {diameter, tools->getThickness(), settings->getVideoRecordingPointerShape(), color});
 }
 
 }  // namespace

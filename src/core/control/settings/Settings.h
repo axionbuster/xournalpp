@@ -566,7 +566,7 @@ public:
     void setVideoRecordingExtraArguments(std::string arguments);
 
     /**
-     * Draw a marker at the pen's position into the recorded picture.
+     * Draw a marker at the pen's position on the live canvas and into the recorded picture.
      *
      * The frame is rendered from the document, so nothing that lives on the desktop -- the system
      * pointer, the pen cursor Xournal++ hands to GTK -- can appear in it. Without this, a viewer
@@ -574,9 +574,10 @@ public:
      * written is invisible. On by default: a recording of a lecture is the case this feature is
      * for, and a lecture is half pointing.
      *
-     * Drawn as a translucent dot, the way a screen recorder marks a pointer, wherever the shared
-     * canvas frame is drawn -- which means the projector window shows it too, the projector being
-     * how you check what is being recorded.
+     * Drawn by one shared marker renderer on the live canvas and wherever the shared canvas frame
+     * is drawn -- which means the projector window and recording show the same shape, color, tip
+     * and proportional size. The live canvas replaces ordinary native drawing cursors with the
+     * marker so platform custom-cursor limits cannot clip it or turn it back into an arrow.
      */
     bool isVideoRecordingShowPointer() const;
     void setVideoRecordingShowPointer(bool show);

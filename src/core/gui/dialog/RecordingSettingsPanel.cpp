@@ -193,13 +193,14 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
                                       "is a second file beside every recording, for a feature you may not be using."));
         gtk_box_pack_start(GTK_BOX(content), this->cbKeepAudioFile, FALSE, TRUE, 0);
 
-        this->cbShowPointer = gtk_check_button_new_with_label(_("Show where the pen is pointing"));
+        this->cbShowPointer = gtk_check_button_new_with_label(_("Show pointer on canvas and in video"));
         gtk_widget_set_tooltip_text(
                 this->cbShowPointer,
                 _("The picture is drawn from the document, so the cursor on your desktop is not in it: without this, "
                   "a viewer sees ink appear with no idea where the pen was in between, and pointing at something "
-                  "already written shows nothing at all. Drawn as a translucent dot in the current pen's color, so "
-                  "the writing underneath still shows through it. The projector window shows it too."));
+                  "already written shows nothing at all. The same configured marker is drawn on the live canvas, in "
+                  "the projector and in the recording. On the canvas it replaces the platform cursor during ordinary "
+                  "pointing and drawing; resize, text and other interaction affordances remain available."));
         gtk_box_pack_start(GTK_BOX(content), this->cbShowPointer, FALSE, TRUE, 0);
 
         // No bound worth defending at either end: a marker two pixels across is reasonable on a 4K
@@ -208,8 +209,8 @@ RecordingSettingsPanel::RecordingSettingsPanel() {
         this->spPointerSize = makeDecimalSpin(0.0, 100000.0, 1.0, 1);
         gtk_widget_set_tooltip_text(this->spPointerSize,
                                     _("The marker's diameter, measured on the finished video: 24 px stays 24 px "
-                                      "whatever resolution is recorded and whatever size the projector window is. "
-                                      "Any value at all, fractions included; 0 draws nothing."));
+                                      "whatever resolution is recorded, while the live canvas and projector scale it "
+                                      "in the same proportion. Any value at all, fractions included; 0 draws nothing."));
         this->boxPointerSize = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
         gtk_widget_set_margin_start(this->boxPointerSize, 22);
         gtk_box_pack_start(GTK_BOX(this->boxPointerSize), gtk_label_new(_("Diameter:")), FALSE, FALSE, 0);

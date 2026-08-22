@@ -28,10 +28,10 @@ the file. Left at that, a viewer sees ink appear with no idea where the pen was 
 and pointing at something already written -- half of what happens in a lecture -- shows nothing at
 all.
 
-So the frame draws its own marker at the pen, in the current pen's color -- the eraser gets a
-neutral gray, having no color of its own. Three shapes are offered. All are drawn at the same size,
-all have a thin dark edge so they have a boundary against a white page, and all mark the exact tip;
-what they trade is how much of the page underneath survives:
+So one shared renderer draws a marker at the pen on the live canvas and in the frame, in the current
+pen's color -- the eraser gets a neutral gray, having no color of its own. Three shapes are offered.
+All are drawn at the same size, all have a thin dark edge so they have a boundary against a white
+page, and all mark the exact tip; what they trade is how much of the page underneath survives:
 
 | Shape | What it does |
 | --- | --- |
@@ -46,12 +46,19 @@ already its own tip mark and gets none.
 It is on by default and turned off under **Preferences > Video Recording > Recording**, where the
 shape is chosen too. Its diameter is given in pixels of the finished video, the same way the
 caption safe area is: a recording at the configured height draws it at exactly the number asked
-for, and a projector window of any size draws it proportionally, so 24 px looks the same in both.
-Any value is accepted, fractions included -- two pixels on a 4K recording and half the page height
-are both things somebody has a reason to want, and nothing here knows better than the person
-watching the result. **A diameter of 0 draws nothing**, which is the convenient way to switch the
-marker off while the number is already under the cursor; the checkbox does the same thing and
-remembers the size.
+for, and the live canvas and a projector window of any size draw it in the same proportion. Any
+value is accepted, fractions included -- two pixels on a 4K recording and half the page height are
+both things somebody has a reason to want, and nothing here knows better than the person watching
+the result. **A diameter of 0 draws nothing**, which is the convenient way to switch the marker off
+while the number is already under the cursor; the checkbox does the same thing and remembers the
+size.
+
+On the live canvas, ordinary pointing and drawing use the marker alone. A retained 1x1 transparent
+GDK cursor keeps the platform pointer out of the way; this matters on macOS, where asking Quartz for
+a large custom cursor can clip it or fall back to the system arrow. Cursors that communicate an
+interaction -- selection resize and rotate handles, the text caret, pan and vertical-space modes --
+stay visible under the marker. The result keeps those affordances without letting the native arrow
+randomly appear over ordinary ink.
 
 Where the pen is comes from `InputContext`, which every pen, eraser and mouse event passes through
 on its way to a handler. Three details are worth knowing:
@@ -66,9 +73,9 @@ on its way to a handler. Three details are worth knowing:
 
 Unlike the caption guide, this is drawn into the recording -- and, being part of the shared frame,
 into the projector as well. That is deliberate: the projector is how you check what is being
-recorded, so it has to show what the recording shows. It does mean the projector has to repaint
-faster than a page nobody is touching needs. `XournalView` tells it the pointer moved, once per
-motion event; the projector's own clock still decides when to repaint, so the rate stays capped
+recorded, so it has to show what the recording shows. The live canvas redraws only the small regions
+at the old and new marker positions. `XournalView` also tells the projector the pointer moved, once
+per motion event; the projector's own clock still decides when to repaint, so the rate stays capped
 however fast the tablet reports.
 
 ## How the two streams get into one file

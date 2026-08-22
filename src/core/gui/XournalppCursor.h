@@ -40,6 +40,7 @@ public:
 
 private:
     void setCursor(guint id);
+    GdkCursor* getBlankCursor(GdkDisplay* display);
 
     GdkCursor* getPenCursor();
 
@@ -71,6 +72,10 @@ private:
     guint currentCursor = 0;        // enum AVAILABLECURSORS
     gulong currentCursorFlavour{};  // for different flavours of a cursor (i.e. drawdir, pen and highlighter custom
                                     // cursors)
+
+    /// A tiny transparent cursor, retained because the Quartz backend does not reliably resolve
+    /// the CSS cursor name "none" and a null GdkCursor means "show the platform default".
+    GdkCursor* blankCursor = nullptr;
 
     // for resizing rotated/mirrored selections
     double angle = 0;

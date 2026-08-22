@@ -184,7 +184,30 @@ public:
      */
     std::optional<xoj::util::Point<double>> getPointerPositionInLayout() const;
 
+    /// Whether the configured shared pointer marker can currently be drawn over a page.
+    bool isPointerMarkerVisible() const;
+
+    /// Draw the same pointer marker used by the projector and recorder on the live canvas.
+    void drawPointerMarker(cairo_t* cr) const;
+
+    /// Repaint the marker in place after a tool property (for example its color) changes.
+    void repaintPointerMarker() const;
+
+    /**
+     * Scrolling or relayout moved the document underneath a stationary pointer.
+     *
+     * Reevaluate native-cursor suppression and tell the projector that the marker's document
+     * position changed even though no input event arrived.
+     */
+    void pointerViewportChanged();
+
 private:
+    /// Repaint the small widget-coordinate region occupied by the marker at @p position.
+    void repaintPointerMarkerAt(const xoj::util::Point<double>& position) const;
+
+    /// Marker diameter in live-canvas pixels, scaled exactly as it is in the projector.
+    double getCanvasPointerMarkerDiameter() const;
+
     /// Let the projector know the marker it draws has moved.
     void pointerMoved();
 

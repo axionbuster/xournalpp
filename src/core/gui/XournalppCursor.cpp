@@ -16,6 +16,7 @@
 #include "control/settings/SettingsEnums.h"  // for STYLUS_CURSOR_BIG, STYLU...
 #include "control/zoom/ZoomControl.h"        // for ZoomControl
 #include "gui/MainWindow.h"                  // for MainWindow
+#include "gui/PointerMarker.h"               // for pointerMarkerKeepsNativeCursor
 #include "util/Color.h"                      // for argb_to_GdkRGBA, rgb_to_...
 #include "util/safe_casts.h"                 // for ceil_cast
 
@@ -114,10 +115,24 @@ constexpr auto LENGTH_ARROW_HEAD = 0.7;
 constexpr auto RESIZE_CURSOR_HASH_PRECISION = 1000;
 
 
-XournalppCursor::~XournalppCursor() = default;
+XournalppCursor::~XournalppCursor() {
+    if (this->blankCursor != nullptr) {
+        g_object_unref(this->blankCursor);
+    }
+}
 
 
-void XournalppCursor::setInputDeviceClass(InputDeviceClass device) { this->inputDevice = device; }
+void XournalppCursor::setInputDeviceClass(InputDeviceClass device) {
+    if (this->inputDevice == device) {
+        return;
+    }
+
+    this->inputDevice = device;
+    // A backend can restore its native arrow as ownership moves between the mouse and tablet.
+    // Proximity/device-change events need not be followed by motion, so reassert the marker's
+    // cursor policy at the transition itself.
+    updateCursor();
+}
 
 
 // pen or hi-light cursor will be a DrawDir cursor instead
@@ -227,6 +242,10 @@ void XournalppCursor::updateCursor() {
         return;
     }
 
+    // Tool changes reach the cursor even if the pointer itself is still. The shared marker takes
+    // its color and tip size from that tool, so repaint it through the same notification path.
+    xournal->repaintPointerMarker();
+
     GdkCursor* cursor = nullptr;
 
 
@@ -237,7 +256,13 @@ void XournalppCursor::updateCursor() {
         ToolType type = handler->getToolType();
 
 
-        if (type == TOOL_HAND) {
+        if (xournal->isPointerMarkerVisible() &&
+            !xoj::gui::pointerMarkerKeepsNativeCursor(type, this->selectionType, this->drawDirActive)) {
+            // The canvas draws the same unrestricted-size marker as the projector and video.
+            // Keep the platform cursor out of that picture: large custom GDK cursors are capped
+            // by the backend and Quartz may otherwise fall back to its arrow.
+            setCursor(CRSR_BLANK_CURSOR);
+        } else if (type == TOOL_HAND) {
             if (this->mouseDown) {
                 setCursor(CRSR_GRABBING);
             } else {
@@ -543,7 +568,10 @@ auto XournalppCursor::createHighlighterOrPenCursor(double alpha) -> GdkCursor* {
 
 
 void XournalppCursor::setCursor(guint cursorID) {
-    if (cursorID == this->currentCursor) {
+    // Reassert the transparent cursor on every update. In particular, macOS may restore its arrow
+    // while switching between tablet and mouse devices even though our logical cursor did not
+    // change; treating blank as cached leaves that arrow visible until some later tool transition.
+    if (cursorID == this->currentCursor && cursorID != CRSR_BLANK_CURSOR) {
         return;
     }
 
@@ -562,11 +590,23 @@ void XournalppCursor::setCursor(guint cursorID) {
         return;
     }
 
-    GdkCursor* cursor = gdk_cursor_new_from_name(gdk_window_get_display(window), cssCursors[cursorID].cssName);
+    GdkDisplay* display = gdk_window_get_display(window);
+    GdkCursor* cursor = nullptr;
+    if (cursorID == CRSR_BLANK_CURSOR) {
+        if (GdkCursor* blank = getBlankCursor(display); blank != nullptr) {
+            cursor = static_cast<GdkCursor*>(g_object_ref(blank));
+        }
+    } else {
+        cursor = gdk_cursor_new_from_name(display, cssCursors[cursorID].cssName);
+    }
     if (cursor == nullptr)  // failed to get a cursor, try backup cursor.
     {
         if (cursorID != CRSR_nullptr) {
-            cursor = gdk_cursor_new_from_name(gdk_window_get_display(window), cssCursors[cursorID].cssBackupName);
+            // The transparent image is the blank cursor's primary route and "none" is its
+            // fallback. Named cursors already tried their primary name above, so try only backup.
+            const gchar* fallbackName = cursorID == CRSR_BLANK_CURSOR ? cssCursors[cursorID].cssName :
+                                                                       cssCursors[cursorID].cssBackupName;
+            cursor = gdk_cursor_new_from_name(display, fallbackName);
 
             // Null cursor is ok but not wanted ... warn user
             if (cursor == nullptr) {
@@ -581,11 +621,31 @@ void XournalppCursor::setCursor(guint cursorID) {
     }
 
     this->currentCursor = cursorID;
-    gdk_window_set_cursor(gtk_widget_get_window(xournal->getWidget()), cursor);
     gdk_window_set_cursor(window, cursor);
     if (cursor) {
         g_object_unref(cursor);
     }
+}
+
+auto XournalppCursor::getBlankCursor(GdkDisplay* display) -> GdkCursor* {
+    if (this->blankCursor != nullptr && gdk_cursor_get_display(this->blankCursor) == display) {
+        return this->blankCursor;
+    }
+    if (this->blankCursor != nullptr) {
+        g_object_unref(this->blankCursor);
+        this->blankCursor = nullptr;
+    }
+
+    // A 1x1 transparent image is below every backend's custom-cursor size limit. Unlike passing a
+    // null cursor, it has an unambiguous meaning on Quartz: draw no native pointer at all.
+    GdkPixbuf* pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, true, 8, 1, 1);
+    if (pixbuf == nullptr) {
+        return nullptr;
+    }
+    gdk_pixbuf_fill(pixbuf, 0x00000000U);
+    this->blankCursor = gdk_cursor_new_from_pixbuf(display, pixbuf, 0, 0);
+    g_object_unref(pixbuf);
+    return this->blankCursor;
 }
 
 

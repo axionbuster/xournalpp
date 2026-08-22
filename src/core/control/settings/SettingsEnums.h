@@ -78,7 +78,7 @@ enum StylusCursorType {
 };
 
 /**
- * How the pen's position is marked in the recorded picture and the projector.
+ * How the pen's position is marked on the live canvas, in the recorded picture and in the projector.
  *
  * All three are the same size and all three mark the tip; what differs is how much of the page
  * underneath they keep. See Settings::getVideoRecordingPointerShape.

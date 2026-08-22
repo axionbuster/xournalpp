@@ -348,6 +348,10 @@ static auto gtk_xournal_draw(GtkWidget* widget, cairo_t* cr) -> gboolean {
         recolor->recolorCurrentCairoRegion(cr);
     }
 
+    // This is intentionally last: the marker is the live pointer, not document content, and must
+    // remain above selections and retain the same configured color as the projector/video copy.
+    xournal->view->drawPointerMarker(cr);
+
     return true;
 }
 
