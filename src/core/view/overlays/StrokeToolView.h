@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include <cairo.h>
@@ -64,6 +65,12 @@ public:
     void deleteOn(FinalizationRequest, const Range& rg);
 
 protected:
+    /**
+     * Constructor with an injected listener pool for specialized renderers. The pool must outlive this view.
+     */
+    StrokeToolView(const StrokeHandler* strokeHandler, const Stroke& stroke, Repaintable* parent,
+                   const std::shared_ptr<xoj::util::DispatchPool<StrokeToolView>>& viewPool);
+
     /**
      * @brief Compute the bounding box of the given segment, taking stroke width into account.
      */

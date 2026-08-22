@@ -101,7 +101,7 @@ static void gtk_xournal_class_init(GtkXournalClass* cptr) {
 }
 
 auto gtk_xournal_get_visible_area(GtkWidget* widget, const XojPageView* p) -> xoj::util::Rectangle<double>* {
-    if (!p || !p->isVisible()) {
+    if (!p) {
         return nullptr;
     }
 
@@ -127,9 +127,9 @@ auto gtk_xournal_get_visible_area(GtkWidget* widget, const XojPageView* p) -> xo
     r1.height = p->getDisplayHeight();
 
     GdkRectangle r3 = {0, 0, 0, 0};
-    gdk_rectangle_intersect(&r1, &r2, &r3);
-
-    if (r3.width == 0 && r3.height == 0) {
+    // Do not trust XojPageView::isVisible() here: it is a cache maintained by Layout and can briefly be stale after a
+    // relayout. This live intersection is authoritative and still rejects pages that are genuinely off-screen.
+    if (!gdk_rectangle_intersect(&r1, &r2, &r3)) {
         return nullptr;
     }
 

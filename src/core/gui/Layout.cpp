@@ -438,10 +438,24 @@ void Layout::recomputeCenteringPadding(int allocWidth, int allocHeight) {
 }
 
 void Layout::recalculate() {
+    const bool refreshImmediately = this->delayUpdate == DelayStatus::NO_DELAY;
+    if (refreshImmediately) {
+        // Keep adjustment callbacks from observing half-reconfigured layout geometry.
+        this->delayUpdate = DelayStatus::DELAY;
+    }
+
     computePrecalculated();
     gtk_adjustment_set_upper(scrollHandling->getHorizontal(), getTotalPixelWidth());
     gtk_adjustment_set_upper(scrollHandling->getVertical(), getTotalPixelHeight());
-    gtk_widget_queue_draw(view->getWidget());
+
+    // A relayout can move or replace pages without changing either adjustment, in which case no signal refreshes the
+    // visibility cache. Always request one update from the completed geometry, but honor an enclosing delayed scroll.
+    if (refreshImmediately) {
+        this->delayUpdate = DelayStatus::NO_DELAY;
+        afterMove(this, view->getWidget());
+    } else {
+        this->delayUpdate = DelayStatus::MUST_RUN_AFTER;
+    }
 }
 
 auto Layout::getFixedPaddingBeforePoint(const xoj::util::Point<double>& ref) const -> xoj::util::Point<int> {

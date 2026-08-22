@@ -198,11 +198,9 @@ protected:
     /**
      * The adjustment was reconfigured: bounds or page size, not the value. The scrolled window
      * does this on every allocation, and "value-changed" stays silent for it. Page visibility is
-     * computed from the page size, so it has to be recomputed here too -- otherwise a view whose
-     * value never changes afterwards (presentation mode pins it) keeps the visibility that was
-     * computed against a zero-sized viewport during setup, every page stays flagged invisible,
-     * and the in-progress stroke draws into a mask sized to that empty rectangle: ink that only
-     * appears on pen lift.
+     * computed from the page size, so it has to be recomputed here too. Otherwise a view whose
+     * value never changes afterwards (presentation mode pins it) can retain visibility computed
+     * against a zero-sized viewport during setup.
      */
     static void adjustmentReconfigured(GtkAdjustment* adjustment, Layout* layout);
 

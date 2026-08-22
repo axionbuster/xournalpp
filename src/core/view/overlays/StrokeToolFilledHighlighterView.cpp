@@ -17,14 +17,10 @@ StrokeToolFilledHighlighterView::StrokeToolFilledHighlighterView(const StrokeHan
 StrokeToolFilledHighlighterView::~StrokeToolFilledHighlighterView() noexcept = default;
 
 void StrokeToolFilledHighlighterView::draw(cairo_t* cr) const {
-
-    std::vector<Point> pts = this->flushBuffer();
-    if (pts.empty()) {
+    if (this->pointBuffer.empty()) {
         // The input sequence has probably been cancelled. This view should soon be deleted
         return;
     }
-
-    this->filling.appendSegments(pts);
 
     if (!this->mask.isInitialized()) {
         // Initialize mask on first call
@@ -37,6 +33,11 @@ void StrokeToolFilledHighlighterView::draw(cairo_t* cr) const {
             return;
         }
     }
+
+    // Keep a failed draw state-neutral. In particular, do not advance filling.contour while retaining the same points
+    // in pointBuffer, or they would be appended twice when mask creation recovers.
+    std::vector<Point> pts = this->flushBuffer();
+    this->filling.appendSegments(pts);
 
     if (this->singleDot) {
         this->drawDot(this->mask.get(), pts.back());

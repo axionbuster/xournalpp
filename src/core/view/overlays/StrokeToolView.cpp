@@ -18,8 +18,12 @@
 using namespace xoj::view;
 
 StrokeToolView::StrokeToolView(const StrokeHandler* strokeHandler, const Stroke& stroke, Repaintable* parent):
+        StrokeToolView(strokeHandler, stroke, parent, strokeHandler->getViewPool()) {}
+
+StrokeToolView::StrokeToolView(const StrokeHandler* strokeHandler, const Stroke& stroke, Repaintable* parent,
+                               const std::shared_ptr<xoj::util::DispatchPool<StrokeToolView>>& viewPool):
         BaseStrokeToolView(parent, stroke), strokeHandler(strokeHandler), pointBuffer(stroke.getPointVector()) {
-    this->registerToPool(strokeHandler->getViewPool());
+    this->registerToPool(viewPool);
     parent->flagDirtyRegion(Range(stroke.getBoundingBox()));
 }
 
@@ -28,13 +32,10 @@ StrokeToolView::~StrokeToolView() noexcept { this->unregisterFromPool(); }
 bool StrokeToolView::isViewOf(const OverlayBase* overlay) const { return overlay == this->strokeHandler; }
 
 void StrokeToolView::draw(cairo_t* cr) const {
-
-    std::vector<Point> pts = this->flushBuffer();
-    if (pts.empty()) {
+    if (this->pointBuffer.empty()) {
         // The input sequence has probably been cancelled. This view should soon be deleted
         return;
     }
-    // pts.front() is the last point we painted on the mask during the last iteration (see flushBuffer())
 
     if (!mask.isInitialized()) {
         // Initialize the mask on first call
@@ -47,6 +48,11 @@ void StrokeToolView::draw(cairo_t* cr) const {
             return;
         }
     }
+
+    // Do not consume points until there is somewhere persistent to paint them. If mask creation temporarily fails,
+    // the next successful draw must be able to catch up on the complete stroke.
+    std::vector<Point> pts = this->flushBuffer();
+    // pts.front() is the last point we painted on the mask during the last iteration (see flushBuffer()).
 
     xoj::util::CairoSaveGuard saveGuard(cr);
     cairo_set_operator(cr, this->cairoOp);
