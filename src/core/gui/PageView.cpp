@@ -1207,7 +1207,7 @@ auto XojPageView::paintPage(cairo_t* cr, GdkRectangle* rect) -> bool {
 
 auto XojPageView::drawOverlays(cairo_t* cr) const -> size_t {
     for (const auto& v: this->overlayViews) {
-        v->draw(cr);
+        v->drawForFrame(cr);
     }
 
     size_t drawn = this->overlayViews.size();

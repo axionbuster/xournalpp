@@ -11,6 +11,8 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
+#include <vector>
 
 #include <cairo.h>
 
@@ -24,12 +26,13 @@ class Settings;
 class ZoomControl;
 class LaserPointerHandler;
 class StrokeHandler;
+class Stroke;
 
 namespace xoj::view {
 class Repaintable;
 class StrokeToolView;
 
-class LaserPointerView final: public OverlayView, public xoj::util::Listener<LaserPointerView> {
+class LaserPointerView: public OverlayView, public xoj::util::Listener<LaserPointerView> {
 
 public:
     LaserPointerView(const LaserPointerHandler* handler, Repaintable* parent);
@@ -39,6 +42,7 @@ public:
      * @brief Draws the overlay to the given context
      */
     void draw(cairo_t* cr) const override;
+    void drawForFrame(cairo_t* cr) const override;
 
     bool isViewOf(const OverlayBase* overlay) const override;
 
@@ -67,13 +71,19 @@ public:
     } FINALIZATION_REQUEST = {};
     void deleteOn(FinalizationRequest);
 
-private:
-    Mask createMask(cairo_t* tgtcr) const;
+protected:
+    LaserPointerView(const LaserPointerHandler* handler, Repaintable* parent,
+                     const std::shared_ptr<xoj::util::DispatchPool<LaserPointerView>>& viewPool);
 
-private:
+    Mask createMask(cairo_t* tgtcr) const;
+    void drawFinishedStrokes(cairo_t* cr) const;
+
+protected:
     const LaserPointerHandler* handler;
 
     std::unique_ptr<StrokeToolView> activeStrokeView;
+    const Stroke* activeStrokeModel = nullptr;
+    std::vector<std::unique_ptr<Stroke>> finishedStrokes;
 
     mutable Mask mask;
 

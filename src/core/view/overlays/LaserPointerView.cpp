@@ -6,6 +6,7 @@
 #include "util/Range.h"
 #include "util/raii/CairoWrappers.h"
 #include "view/Repaintable.h"
+#include "view/StrokeView.h"
 #include "view/View.h"
 
 #include "StrokeToolView.h"
@@ -13,8 +14,12 @@
 using namespace xoj::view;
 
 LaserPointerView::LaserPointerView(const LaserPointerHandler* handler, Repaintable* parent):
+        LaserPointerView(handler, parent, handler->getViewPool()) {}
+
+LaserPointerView::LaserPointerView(const LaserPointerHandler* handler, Repaintable* parent,
+                                   const std::shared_ptr<xoj::util::DispatchPool<LaserPointerView>>& viewPool):
         OverlayView(parent), handler(handler) {
-    this->registerToPool(handler->getViewPool());
+    this->registerToPool(viewPool);
 }
 
 LaserPointerView::~LaserPointerView() noexcept { this->unregisterFromPool(); }
@@ -26,15 +31,50 @@ void LaserPointerView::draw(cairo_t* cr) const {
         this->mask.paintToWithAlpha(cr, this->alpha);
     } else {
         this->mask = createMask(cr);
+        if (this->mask.isInitialized()) {
+            for (const auto& stroke: this->finishedStrokes) {
+                StrokeView(stroke.get()).draw(Context::createDefault(this->mask.get()));
+            }
+            xoj::util::CairoSaveGuard saveGuard(cr);
+            cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+            this->mask.paintToWithAlpha(cr, this->alpha);
+        } else {
+            drawFinishedStrokes(cr);
+        }
     }
     if (this->activeStrokeView) {
         this->activeStrokeView->draw(cr);
     }
 }
 
+void LaserPointerView::drawForFrame(cairo_t* cr) const {
+    // Render retained models rather than borrowing the live, destination-specific laser mask. This also keeps a
+    // stroke visible when a recording frame is the only consumer before FINISH_STROKE_REQUEST.
+    drawFinishedStrokes(cr);
+    if (this->activeStrokeView) {
+        this->activeStrokeView->drawForFrame(cr);
+    }
+}
+
+void LaserPointerView::drawFinishedStrokes(cairo_t* cr) const {
+    if (this->finishedStrokes.empty() || this->alpha == 0) {
+        return;
+    }
+
+    xoj::util::CairoSaveGuard saveGuard(cr);
+    cairo_push_group_with_content(cr, CAIRO_CONTENT_COLOR_ALPHA);
+    for (const auto& stroke: this->finishedStrokes) {
+        StrokeView(stroke.get()).draw(Context::createDefault(cr));
+    }
+    cairo_pop_group_to_source(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    cairo_paint_with_alpha(cr, static_cast<double>(this->alpha) / 255.0);
+}
+
 bool LaserPointerView::isViewOf(const OverlayBase* overlay) const { return overlay == this->handler; }
 
 void xoj::view::LaserPointerView::on(StartNewStrokeRequest, StrokeHandler* handler) {
+    this->activeStrokeModel = handler->getStroke();
     this->activeStrokeView = std::make_unique<StrokeToolView>(handler, *handler->getStroke(), parent);
     if (!this->extents.empty()) {
         on(SET_ALPHA_REQUEST, 255);
@@ -48,15 +88,19 @@ void xoj::view::LaserPointerView::on(SetAlphaRequest, uint8_t alpha) {
 
 void xoj::view::LaserPointerView::on(FinishStrokeRequest, const Range& strokeBox) {
     xoj_assert(this->activeStrokeView);
+    xoj_assert(this->activeStrokeModel);
+    this->finishedStrokes.emplace_back(this->activeStrokeModel->cloneStroke());
     if (this->mask.isInitialized()) {
         this->activeStrokeView->draw(this->mask.get());
     }
     this->activeStrokeView.reset();
+    this->activeStrokeModel = nullptr;
     this->extents = this->extents.unite(strokeBox);
 }
 
 void xoj::view::LaserPointerView::on(InputCancellationRequest, const Range& rg) {
     this->activeStrokeView.reset();
+    this->activeStrokeModel = nullptr;
     this->parent->flagDirtyRegion(rg);
 }
 

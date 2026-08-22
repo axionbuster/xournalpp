@@ -10,12 +10,14 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 #include <cairo.h>
 
 #include "util/DispatchPool.h"
+#include "util/Range.h"
 #include "view/Mask.h"
 
 #include "BaseStrokeToolView.h"
@@ -37,6 +39,7 @@ public:
     bool isViewOf(const OverlayBase* overlay) const override;
 
     void draw(cairo_t* cr) const override;
+    void drawForFrame(cairo_t* cr) const override;
 
     /**
      * Listener interface
@@ -78,6 +81,29 @@ protected:
 
     void drawDot(cairo_t* cr, const Point& p) const;
 
+    /** Render the controller-owned stroke without touching either the live or clean-frame incremental state. */
+    void drawModelSnapshot(cairo_t* cr, const Stroke& stroke) const;
+
+    struct FrameMaskState {
+        Mask mask;
+        Range extent;
+        double zoom = 0.0;
+        size_t pointCount = 0;
+        uint64_t lastUsed = 0;
+        bool containsSingleDot = false;
+    };
+
+    /** Update the matching output-geometry mask with points not yet present in it. */
+    FrameMaskState* updateFrameMask(cairo_t* cr, const Stroke& stroke) const;
+
+    void resetFrameMasks() const;
+
+    /**
+     * Draw a filled highlighter without touching the live mask/filling state. The temporary alpha group is bounded by
+     * the destination's current clip, rather than by a potentially enormous custom page or stroke bounding box.
+     */
+    void drawFilledHighlighterForFrame(cairo_t* cr, const Stroke& stroke) const;
+
     /**
      * @brief (Thread-safe) Flush the communication buffer and returns its content.
      */
@@ -88,6 +114,10 @@ protected:
 
 protected:
     const StrokeHandler* strokeHandler;
+
+    /// The controller-owned stroke is updated before requests are dispatched to this view. Clean output frames read
+    /// it without advancing the interactive canvas's point buffer or mask.
+    const Stroke* liveStroke;
 
 protected:
     bool singleDot = true;
@@ -111,5 +141,12 @@ protected:
      * Upon calls to draw(), the buffer is flushed and the corresponding part of stroke is added to the mask.
      */
     mutable Mask mask;
+
+    /**
+     * Clean output consumers share a separate, target-independent incremental alpha mask. It may be painted at a
+     * different scale without ever consuming the interactive canvas's pointBuffer or mask.
+     */
+    mutable std::vector<FrameMaskState> frameMasks;
+    mutable uint64_t frameMaskUseCounter = 0;
 };
 };  // namespace xoj::view

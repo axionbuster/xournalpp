@@ -14,6 +14,11 @@ StrokeToolFilledHighlighterView::StrokeToolFilledHighlighterView(const StrokeHan
                                                                  const Stroke& stroke, Repaintable* parent):
         StrokeToolFilledView(strokeHandler, stroke, parent) {}
 
+StrokeToolFilledHighlighterView::StrokeToolFilledHighlighterView(
+        const StrokeHandler* strokeHandler, const Stroke& stroke, Repaintable* parent,
+        const std::shared_ptr<xoj::util::DispatchPool<StrokeToolView>>& viewPool):
+        StrokeToolFilledView(strokeHandler, stroke, parent, viewPool) {}
+
 StrokeToolFilledHighlighterView::~StrokeToolFilledHighlighterView() noexcept = default;
 
 void StrokeToolFilledHighlighterView::draw(cairo_t* cr) const {
@@ -26,10 +31,9 @@ void StrokeToolFilledHighlighterView::draw(cairo_t* cr) const {
         // Initialize mask on first call
         this->mask = this->createMask(cr);
         if (!mask.isInitialized()) {
-            /*
-             * The user might be drawing on a page that is not visible at all:
-             * e.g. https://github.com/xournalpp/xournalpp/pull/4158#issuecomment-1385954494
-             */
+            // Keep filling.contour and pointBuffer untouched. The stateless clean-frame renderer uses a temporary
+            // clip-bounded alpha group, preserving the filled highlighter's single-composite semantics.
+            drawForFrame(cr);
             return;
         }
     }

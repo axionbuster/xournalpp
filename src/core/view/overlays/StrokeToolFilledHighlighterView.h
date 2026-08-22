@@ -21,5 +21,9 @@ public:
     virtual ~StrokeToolFilledHighlighterView() noexcept;
 
     void draw(cairo_t* cr) const override;
+
+protected:
+    StrokeToolFilledHighlighterView(const StrokeHandler* strokeHandler, const Stroke& stroke, Repaintable* parent,
+                                    const std::shared_ptr<xoj::util::DispatchPool<StrokeToolView>>& viewPool);
 };
 };  // namespace xoj::view

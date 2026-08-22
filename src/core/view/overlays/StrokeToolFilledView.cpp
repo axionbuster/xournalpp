@@ -21,6 +21,12 @@ StrokeToolFilledView::StrokeToolFilledView(const StrokeHandler* strokeHandler, c
                                            Repaintable* parent):
         StrokeToolView(strokeHandler, stroke, parent), filling(stroke.getFill() / 255.0, setupFirstPoint(stroke)) {}
 
+StrokeToolFilledView::StrokeToolFilledView(const StrokeHandler* strokeHandler, const Stroke& stroke,
+                                           Repaintable* parent,
+                                           const std::shared_ptr<xoj::util::DispatchPool<StrokeToolView>>& viewPool):
+        StrokeToolView(strokeHandler, stroke, parent, viewPool),
+        filling(stroke.getFill() / 255.0, setupFirstPoint(stroke)) {}
+
 StrokeToolFilledView::~StrokeToolFilledView() noexcept = default;
 
 void StrokeToolFilledView::drawFilling(cairo_t* cr, const std::vector<Point>& pts) const {

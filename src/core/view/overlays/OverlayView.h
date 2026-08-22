@@ -27,6 +27,14 @@ public:
      */
     virtual void draw(cairo_t* cr) const = 0;
 
+    /**
+     * @brief Draws the overlay into a clean output frame (recording/projector).
+     *
+     * Most overlays are stateless painters and can use the normal draw path. Stateful live-tool views may override
+     * this to keep a frame render from consuming state that belongs to the interactive canvas.
+     */
+    virtual void drawForFrame(cairo_t* cr) const { this->draw(cr); }
+
     virtual bool isViewOf(const OverlayBase* overlay) const = 0;
 
 protected:

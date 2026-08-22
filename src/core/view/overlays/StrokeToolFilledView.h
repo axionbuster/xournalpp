@@ -38,6 +38,9 @@ public:
     void on(StrokeReplacementRequest, const Stroke& newStroke) override;
 
 protected:
+    StrokeToolFilledView(const StrokeHandler* strokeHandler, const Stroke& stroke, Repaintable* parent,
+                         const std::shared_ptr<xoj::util::DispatchPool<StrokeToolView>>& viewPool);
+
     class FillingData {
     public:
         FillingData(double alpha, const Point& p): alpha(alpha), firstPoint(p.x, p.y), contour{p} {}
