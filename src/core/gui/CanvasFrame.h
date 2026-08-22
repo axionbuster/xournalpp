@@ -129,7 +129,8 @@ private:
 
     /// UI-thread completion of a background render: adopt the surface if it still fits.
     void completeRefresh(xoj::util::CairoSurfaceSPtr renderedSurface, const PageRef& renderedPage, int renderedWidth,
-                         int renderedHeight, std::uint64_t renderedRevision, gint64 startedAt);
+                         int renderedHeight, std::uint64_t renderedRevision, std::uint64_t renderedEpoch,
+                         gint64 startedAt);
 
     /// The page's settled content, at exactly the size it is drawn on screen. Null when empty.
     xoj::util::CairoSurfaceSPtr surface;
@@ -148,6 +149,9 @@ private:
 
     /// One background render at a time; a second request just lets the staleness check re-fire.
     bool refreshInFlight = false;
+
+    /// Incremented whenever cached pixels are explicitly discarded, invalidating older jobs.
+    std::uint64_t invalidationEpoch = 0;
 
     std::function<void()> onRefreshed;
 

@@ -190,13 +190,14 @@ bool drawPointer(Control* control, cairo_t* cr, const PageRef& page, double page
 class FrameRefreshJob final: public Job {
 public:
     FrameRefreshJob(Control* control, PageRef page, double pageScale, int width, int height, std::uint64_t revision,
-                    gint64 startedAt, std::shared_ptr<FrameCache*> aliveToken):
+                    std::uint64_t invalidationEpoch, gint64 startedAt, std::shared_ptr<FrameCache*> aliveToken):
             control(control),
             page(std::move(page)),
             pageScale(pageScale),
             width(width),
             height(height),
             revision(revision),
+            invalidationEpoch(invalidationEpoch),
             startedAt(startedAt),
             aliveToken(std::move(aliveToken)) {}
 
@@ -216,10 +217,10 @@ protected:
         cairo_surface_flush(rendered.get());
 
         Util::execInUiThread([token = this->aliveToken, surface = std::move(rendered), page = this->page,
-                              w = this->width, h = this->height, rev = this->revision,
+                              w = this->width, h = this->height, rev = this->revision, epoch = this->invalidationEpoch,
                               at = this->startedAt]() mutable {
             if (FrameCache* cache = *token; cache != nullptr) {
-                cache->completeRefresh(std::move(surface), page, w, h, rev, at);
+                cache->completeRefresh(std::move(surface), page, w, h, rev, epoch, at);
             }
         });
     }
@@ -231,6 +232,7 @@ private:
     int width;
     int height;
     std::uint64_t revision;
+    std::uint64_t invalidationEpoch;
     gint64 startedAt;
     std::shared_ptr<FrameCache*> aliveToken;
 };
@@ -242,7 +244,9 @@ FrameCache::~FrameCache() { *this->aliveToken = nullptr; }
 void FrameCache::invalidate() {
     this->surface.reset();
     this->page = PageRef{};
-    // In-flight renders die on arrival: completeRefresh only adopts into a matching live surface.
+    this->invalidationEpoch++;
+    // In-flight renders die on arrival even if the same page is rebuilt before they finish:
+    // completeRefresh also requires the invalidation epoch captured when the job started.
 }
 
 void FrameCache::setRefreshedCallback(std::function<void()> callback) { this->onRefreshed = std::move(callback); }
@@ -274,21 +278,22 @@ void FrameCache::kickRefresh(Control* control) {
     this->refreshInFlight = true;
 
     auto* job = new FrameRefreshJob(control, this->page, this->scale, this->width, this->height,
-                                    control->getCanvasRevision(), g_get_monotonic_time(), this->aliveToken);
+                                    control->getCanvasRevision(), this->invalidationEpoch, g_get_monotonic_time(),
+                                    this->aliveToken);
     control->getScheduler()->addJob(job, JOB_PRIORITY_HIGH);
     job->unref();
 }
 
 void FrameCache::completeRefresh(xoj::util::CairoSurfaceSPtr renderedSurface, const PageRef& renderedPage,
                                  int renderedWidth, int renderedHeight, std::uint64_t renderedRevision,
-                                 gint64 startedAt) {
+                                 std::uint64_t renderedEpoch, gint64 startedAt) {
     this->refreshInFlight = false;
 
     // Adopt only if the picture still answers the current question. A page flip or a resize while
     // the render was under way has already been handled synchronously; this render is then about
     // yesterday and is dropped on the floor.
-    if (!this->surface || this->page != renderedPage || this->width != renderedWidth ||
-        this->height != renderedHeight) {
+    if (this->invalidationEpoch != renderedEpoch || !this->surface || this->page != renderedPage ||
+        this->width != renderedWidth || this->height != renderedHeight) {
         return;
     }
 
