@@ -53,6 +53,7 @@ void drawPage(GtkPrintOperation* /*operation*/, GtkPrintContext* context, int pa
     flags.showPDF = xoj::view::HIDE_PDF_BACKGROUND;  // Already printed (if any)
 
     DocumentView view;
+    view.setHideEditorOnlyElements(true);
     view.drawPage(page, cr, true /* dont render eraseable */, flags);
 }
 

@@ -306,6 +306,13 @@ public:
 
     void reorderSelection(EditSelection::OrderChange change);
 
+    /**
+     * Toggle the editor-only flag of the current selection: elements that are editor-only
+     * stay visible (faded) on the canvas but are left out of recordings, the projector,
+     * exports and prints. Does nothing without a selection.
+     */
+    void toggleSelectionEditorOnly();
+
     void setToolSize(ToolSize size);
 
     /**

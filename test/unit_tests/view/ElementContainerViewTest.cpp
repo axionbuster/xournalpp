@@ -14,6 +14,7 @@
 #include "util/Rectangle.h"
 #include "util/raii/CairoWrappers.h"
 #include "view/ElementContainerView.h"
+#include "view/View.h"
 
 namespace {
 
@@ -58,7 +59,7 @@ TEST(ElementContainerViewTest, DrawsMovedResizedAndRotatedSelectionContentWithou
     cairo_translate(cr.get(), -60.0, -50.0);
     xoj::view::ElementContainerView(&container)
             .drawTransformed(cr.get(), xoj::util::Rectangle<double>{10.0, 20.0, 20.0, 20.0},
-                             xoj::util::Rectangle<double>{50.0, 40.0, 40.0, 20.0});
+                             xoj::util::Rectangle<double>{50.0, 40.0, 40.0, 20.0}, xoj::view::HIDE_EDITOR_ONLY);
 
     // The transformed horizontal stroke is now vertical. Its old position and
     // the target rectangle's corner remain clear: no selection tint, border or
@@ -68,6 +69,39 @@ TEST(ElementContainerViewTest, DrawsMovedResizedAndRotatedSelectionContentWithou
     EXPECT_EQ(alphaAt(surface.get(), 15, 30), 0U);
     EXPECT_EQ(alphaAt(surface.get(), 50, 40), 0U);
     EXPECT_EQ(alphaAt(surface.get(), 55, 65), 0U);
+}
+
+TEST(ElementContainerViewTest, EditorOnlyElementsFollowTheContextTreatment) {
+    TestElementContainer container;
+    auto stroke = std::make_unique<Stroke>();
+    stroke->setColor(Colors::black);
+    stroke->setWidth(4.0);
+    stroke->addPoint(Point(10.0, 20.0));
+    stroke->addPoint(Point(30.0, 20.0));
+    stroke->setEditorOnly(true);
+    container.add(std::move(stroke));
+
+    const xoj::util::Rectangle<double> bounds{0.0, 0.0, 40.0, 40.0};
+
+    // Hidden for output: nothing lands on the surface at all.
+    {
+        xoj::util::CairoSurfaceSPtr surface(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 40, 40), xoj::util::adopt);
+        xoj::util::CairoSPtr cr(cairo_create(surface.get()), xoj::util::adopt);
+        xoj::view::ElementContainerView(&container).drawTransformed(cr.get(), bounds, bounds,
+                                                                    xoj::view::HIDE_EDITOR_ONLY);
+        EXPECT_EQ(alphaAt(surface.get(), 20, 20), 0U);
+    }
+
+    // Shown for editing: present, but faded well below full opacity.
+    {
+        xoj::util::CairoSurfaceSPtr surface(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 40, 40), xoj::util::adopt);
+        xoj::util::CairoSPtr cr(cairo_create(surface.get()), xoj::util::adopt);
+        xoj::view::ElementContainerView(&container).drawTransformed(cr.get(), bounds, bounds,
+                                                                    xoj::view::SHOW_EDITOR_ONLY);
+        const auto alpha = alphaAt(surface.get(), 20, 20);
+        EXPECT_GT(alpha, 0U);
+        EXPECT_LT(alpha, 200U);
+    }
 }
 
 }  // namespace

@@ -32,6 +32,7 @@ auto TexImage::cloneTexImage() const -> std::unique_ptr<TexImage> {
     auto img = std::make_unique<TexImage>();
     img->boundingBox = this->boundingBox;
     img->setColor(this->getColor());
+    img->setEditorOnly(this->isEditorOnly());
     img->text = this->text;
     img->snappedBounds = this->snappedBounds;
     img->sizeCalculated = this->sizeCalculated;

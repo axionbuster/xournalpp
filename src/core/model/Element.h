@@ -65,6 +65,15 @@ public:
     void setColor(Color color);
     Color getColor() const;
 
+    /**
+     * An editor-only element is drawn faded on the editing canvas and left out of everything
+     * meant for an audience: recordings, the projector window, PDF/PNG/SVG exports, prints,
+     * and the file preview thumbnail. Fork-only; see the comment on EDITOR_ONLY_STR in
+     * XmlAttrs.h for the file format side.
+     */
+    void setEditorOnly(bool editorOnly);
+    bool isEditorOnly() const;
+
     const xoj::util::Rectangle<double>& getSnappedBounds() const;
 
     const xoj::util::Rectangle<double>& getBoundingBox() const;
@@ -111,6 +120,9 @@ private:
      * The color in RGB format
      */
     Color color{0U};
+
+    /// Visible only on the editing canvas, never in output; see setEditorOnly()
+    bool editorOnly = false;
 };
 
 namespace xoj {

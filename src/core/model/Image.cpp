@@ -40,6 +40,7 @@ auto Image::clone() const -> ElementPtr {
 
     img->boundingBox = this->boundingBox;
     img->setColor(this->getColor());
+    img->setEditorOnly(this->isEditorOnly());
     img->data = this->data;
 
     img->image = cairo_surface_reference(this->image);

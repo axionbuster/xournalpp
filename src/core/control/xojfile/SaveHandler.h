@@ -27,6 +27,7 @@ class XmlPointNode;
 class ProgressListener;
 class AudioElement;
 class Document;
+class Element;
 class Layer;
 class OutputStream;
 class Stroke;
@@ -87,6 +88,12 @@ protected:
      * Export the inline style runs, which only this fork's format has
      */
     virtual void visitTextExtended(XmlTextNode* text, const Text* t);
+
+    /**
+     * Export the attributes any element type can carry, which only this fork's format has
+     * (today: the editor-only flag). Called for every element, whatever its type.
+     */
+    virtual void visitElementExtended(XmlNode* node, const Element* e);
 
     virtual void writeHeader(const Document* doc);
     virtual void writeSolidBackground(XmlNode* background, ConstPageRef p);

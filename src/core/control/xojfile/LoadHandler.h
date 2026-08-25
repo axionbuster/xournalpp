@@ -120,6 +120,8 @@ private:
     void setLinkContent(std::string contents) override;
     void finalizeLink() override;
 
+    void setElementEditorOnly() override;
+
     void logError(const std::string& error) override;
 
 private:

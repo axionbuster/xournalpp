@@ -176,6 +176,13 @@ public:
     UndoActionPtr setColor(Color color);
 
     /**
+     * Toggle the editor-only flag of all elements: if any of them is still visible in output,
+     * all become editor-only, otherwise all become visible again. Returns an undo action
+     * (or nullptr if the selection is empty)
+     */
+    UndoActionPtr toggleEditorOnly();
+
+    /**
      * Sets the color of all containing text elements, return an undo action
      * (or nullptr if there are no Text elements)
      */

@@ -35,6 +35,10 @@ void XojExportHandler::visitTextExtended(XmlTextNode* text, const Text* t) {
     // Inline style runs are a fork-only construct; a .xoj file gets the plain text
 }
 
+void XojExportHandler::visitElementExtended(XmlNode* node, const Element* e) {
+    // The editor-only flag is a fork-only construct; a .xoj file gets the element plain
+}
+
 void XojExportHandler::writeHeader(const Document* doc) {
     this->root->setAttrib(xoj::xml_attrs::CREATOR_STR, PROJECT_STRING);
     // Keep this version on 2, as this is anyway not read by Xournal

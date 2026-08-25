@@ -85,6 +85,14 @@ public:
     virtual void finalizeLink() = 0;
 
     /**
+     * Mark the element currently being built -- whatever its type -- as editor-only.
+     *
+     * Fork-only; called between the element's add*() and finalize*(), and only for elements
+     * that carry the fork's "editorOnly" attribute.
+     */
+    virtual void setElementEditorOnly() = 0;
+
+    /**
      * Store an error for retrieval through `getErrorMessages()` and print it
      * to the console as a warning.
      */

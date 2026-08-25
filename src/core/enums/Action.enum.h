@@ -52,6 +52,11 @@ enum class Action : size_t {
     SEARCH,
     SELECT_ALL,
     DELETE,
+    /**
+     * Toggle the editor-only flag of the current selection: editor-only elements are shown
+     * faded on the canvas and left out of recordings, the projector, exports and prints.
+     */
+    SELECTION_EDITOR_ONLY,
     MOVE_SELECTION_LAYER_UP,
     MOVE_SELECTION_LAYER_DOWN,
     ROTATION_SNAPPING,

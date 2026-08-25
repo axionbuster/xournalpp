@@ -36,6 +36,7 @@ protected:
      */
     void visitStrokeExtended(XmlPointNode* stroke, const Stroke* s) override;
     void visitTextExtended(XmlTextNode* text, const Text* t) override;
+    void visitElementExtended(XmlNode* node, const Element* e) override;
     void writeHeader(const Document* doc) override;
     void writeSolidBackground(XmlNode* background, ConstPageRef p) override;
     void writeTimestamp(XmlAudioNode* xmlAudioNode, const AudioElement* audioElement) override;

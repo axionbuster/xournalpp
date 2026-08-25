@@ -40,6 +40,24 @@ constexpr auto PAGE_NUMBER_STR = u8"pageno";
 constexpr auto AUDIO_FILENAME_STR = u8"fn";  // also in stroke, text and audio
 constexpr auto TIMESTAMP_STR = u8"ts";       // also in stroke and text
 
+/*
+ * Fork-only attribute on any element (stroke, text, image, teximage, link), written only when
+ * the element is editor-only:
+ *
+ *     editorOnly="true"
+ *
+ * An editor-only element is shown faded on the editing canvas but left out of recordings, the
+ * projector window, exports, prints, and the file preview — guide lines for a construction,
+ * say, that the audience of the finished video never sees. The attribute is omitted entirely
+ * for ordinary elements.
+ *
+ * Stock Xournal++ looks element attributes up by name (XmlParserHelper::AttributeMap) and
+ * never enumerates the ones it does not know, so it silently ignores this one and shows the
+ * element normally. A document containing it is nonetheless tagged with the fork's file
+ * format version — see SaveHandler::hasForkFormatExtensions().
+ */
+constexpr auto EDITOR_ONLY_STR = u8"editorOnly";
+
 // stroke
 constexpr auto TOOL_STR = u8"tool";
 constexpr auto PRESSURES_STR = u8"pressures";

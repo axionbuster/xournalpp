@@ -93,6 +93,9 @@ auto SaveHandler::hasForkFormatExtensions(const Document* doc) -> bool {
         ConstPageRef p = doc->getPage(i);
         for (const Layer* l: p->getLayersView()) {
             for (const auto& e: l->getElementsView()) {
+                if (e->isEditorOnly()) {
+                    return true;
+                }
                 if (e->getType() == ELEMENT_STROKE && dynamic_cast<const Stroke*>(e)->getLineShape()) {
                     return true;
                 }
@@ -170,6 +173,7 @@ void SaveHandler::visitStroke(XmlPointNode* stroke, const Stroke* s) {
     }
 
     visitStrokeExtended(stroke, s);
+    visitElementExtended(stroke, s);
 }
 
 /**
@@ -205,6 +209,13 @@ void SaveHandler::visitTextExtended(XmlTextNode* text, const Text* t) {
     if (const auto& runs = t->getStyleRuns(); !runs.empty()) {
         // Fork-only attribute; see the comment on RUNS_STR in XmlAttrs.h
         text->setAttrib(xoj::xml_attrs::RUNS_STR, xoj::text::serializeStyleRuns(runs).c_str());
+    }
+}
+
+void SaveHandler::visitElementExtended(XmlNode* node, const Element* e) {
+    if (e->isEditorOnly()) {
+        // Fork-only attribute; see the comment on EDITOR_ONLY_STR in XmlAttrs.h
+        node->setAttrib(xoj::xml_attrs::EDITOR_ONLY_STR, xoj::xml_values::TRUE_STR);
     }
 }
 
@@ -249,6 +260,7 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
             }
 
             visitTextExtended(text, t);
+            visitElementExtended(text, t);
 
             writeTimestamp(text, t);
         } else if (e->getType() == ELEMENT_IMAGE) {
@@ -263,6 +275,7 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
             image->setAttrib(xoj::xml_attrs::TOP_POS_STR, r.minY);
             image->setAttrib(xoj::xml_attrs::RIGHT_POS_STR, r.maxX);
             image->setAttrib(xoj::xml_attrs::BOTTOM_POS_STR, r.maxY);
+            visitElementExtended(image, i);
         } else if (e->getType() == ELEMENT_TEXIMAGE) {
             auto* i = dynamic_cast<const TexImage*>(e);
             auto* image = new XmlTexNode(TAG_NAMES[TagType::TEXIMAGE], std::string(i->getBinaryData()));
@@ -274,6 +287,7 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
             image->setAttrib(xoj::xml_attrs::TOP_POS_STR, r.minY);
             image->setAttrib(xoj::xml_attrs::RIGHT_POS_STR, r.maxX);
             image->setAttrib(xoj::xml_attrs::BOTTOM_POS_STR, r.maxY);
+            visitElementExtended(image, i);
         } else if (e->getType() == ELEMENT_LINK) {
             auto* l = dynamic_cast<const Link*>(e);
             auto* link = new XmlTextNode(TAG_NAMES[TagType::LINK], l->getText());
@@ -289,6 +303,7 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
             link->setAttrib(xoj::xml_attrs::Y_COORD_STR, origin.y);
             link->setAttrib(xoj::xml_attrs::COLOR_STR, getColorStr(l->getColor()).c_str());
             link->setAttrib(xoj::xml_attrs::URL_STR, l->getUrl().c_str());
+            visitElementExtended(link, l);
         }
     }
 }

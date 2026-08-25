@@ -50,6 +50,10 @@ void Element::setColor(Color color) { this->color = color; }
 
 auto Element::getColor() const -> Color { return this->color; }
 
+void Element::setEditorOnly(bool editorOnly) { this->editorOnly = editorOnly; }
+
+auto Element::isEditorOnly() const -> bool { return this->editorOnly; }
+
 auto Element::intersectsArea(double x, double y, double width, double height) const -> bool {
     return this->getBoundingBox().intersects(xoj::util::Rectangle<double>(x, y, width, height)).has_value();
 }
@@ -95,6 +99,15 @@ void Element::serialize(ObjectOutputStream& out) const {
     out.writeDouble(pt.y);
     out.writeUInt(uint32_t(this->color));
 
+    // Optional editor-only flag, appended after every field a stock Xournal++ build writes.
+    // An ordinary element writes nothing at all here, so its blob is byte-identical to a
+    // stock one and still pastes into a stock build running alongside this fork. An
+    // editor-only element is a fork-only construct, and pasting one into a stock build
+    // does not work.
+    if (this->editorOnly) {
+        out.writeInt(1);
+    }
+
     out.endObject();
 }
 
@@ -105,6 +118,10 @@ void Element::readSerialized(ObjectInputStream& in) {
     double y = in.readDouble();
     setOrigin(x, y);
     this->color = Color(in.readUInt());
+
+    // Optional editor-only flag: absent both from an ordinary element and from a blob
+    // written by a stock Xournal++ build, which ends the object right here.
+    this->editorOnly = !in.atEndOfObject() && in.readInt() != 0;
 
     in.endObject();
 }

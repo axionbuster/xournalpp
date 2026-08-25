@@ -403,6 +403,8 @@ void XmlParser::parseStrokeTag(const XmlParserHelper::AttributeMap& attributeMap
         }
     }
 
+    parseEditorOnlyAttr(attributeMap);
+
     // Reset timestamp, filename was already moved from
     this->tempTimestamp = 0;
 }
@@ -481,6 +483,8 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
         }
     }
 
+    parseEditorOnlyAttr(attributeMap);
+
     this->tempTimestamp = 0;
 }
 
@@ -493,6 +497,8 @@ void XmlParser::parseImageTag(const XmlParserHelper::AttributeMap& attributeMap)
     const auto bottom = XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::BOTTOM_POS_STR, attributeMap);
 
     this->builder.addImage(left, top, right, bottom);
+
+    parseEditorOnlyAttr(attributeMap);
 }
 
 void XmlParser::parseImageText(std::string_view text) {
@@ -513,6 +519,8 @@ void XmlParser::parseTexImageTag(const XmlParserHelper::AttributeMap& attributeM
     // Attribute "texlength" found in earlier parsers was a workaround from 098a67b to bdd0ec2
 
     this->builder.addTexImage(left, top, right, bottom, std::string{text});
+
+    parseEditorOnlyAttr(attributeMap);
 }
 
 void XmlParser::parseTexImageText(std::string_view text) {
@@ -535,9 +543,17 @@ void XmlParser::parseLinkTag(const XmlParserHelper::AttributeMap& attributeMap) 
     auto url = XmlParserHelper::getAttribMandatory<std::string_view>(xoj::xml_attrs::URL_STR, attributeMap);
 
     this->builder.addLink(align, std::string{font}, size, x, y, color, std::string{url});
+
+    parseEditorOnlyAttr(attributeMap);
 }
 
 void XmlParser::parseLinkText(std::string_view text) { this->builder.setLinkContent(std::string{text}); }
+
+void XmlParser::parseEditorOnlyAttr(const XmlParserHelper::AttributeMap& attributeMap) {
+    if (XmlParserHelper::getAttrib<bool>(xoj::xml_attrs::EDITOR_ONLY_STR, attributeMap).value_or(false)) {
+        this->builder.setElementEditorOnly();
+    }
+}
 
 void XmlParser::parseAttachmentTag(const XmlParserHelper::AttributeMap& attributeMap) {
     const auto path = XmlParserHelper::getAttribMandatory<fs::path>(xoj::xml_attrs::PATH_STR, attributeMap);

@@ -56,6 +56,13 @@ public:
      */
     void setMarkAudioStroke(bool markAudioStroke);
 
+    /**
+     * Leave out editor-only elements entirely, instead of drawing them faded.
+     * Set by every rendering meant for an audience: exports, prints, recorded and
+     * projected frames, and the file preview thumbnail.
+     */
+    void setHideEditorOnlyElements(bool hideEditorOnlyElements);
+
     // API for special drawing, usually you won't call this methods
 public:
     void setPdfCache(PdfCache* cache);
@@ -89,5 +96,6 @@ private:
     PdfCache* pdfCache = nullptr;
     bool dontRenderEditingStroke = false;
     bool markAudioStroke = false;
+    bool hideEditorOnlyElements = false;
 
 };

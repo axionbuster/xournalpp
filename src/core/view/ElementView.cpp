@@ -1,5 +1,7 @@
 #include <memory>  // for make_unique, unique_ptr
 
+#include <cairo.h>  // for cairo_push_group, cairo_paint_with_alpha
+
 #include "model/Element.h"   // for Element, ELEMENT_IMAGE, ELEMENT_STROKE
 #include "model/Image.h"     // for Image
 #include "model/Link.h"      // for Link
@@ -33,4 +35,20 @@ auto ElementView::createFromElement(const Element* e) -> std::unique_ptr<Element
             xoj_assert_message(false, "ElementView::getFromElement: Unknown element type!");
             return nullptr;
     }
+}
+
+void xoj::view::drawElement(const Element* e, const Context& ctx) {
+    if (!e->isEditorOnly()) {
+        ElementView::createFromElement(e)->draw(ctx);
+        return;
+    }
+    if (ctx.hideEditorOnly) {
+        return;
+    }
+    // Faded as a whole: the element is rendered into its own group and the finished picture is
+    // blended down at reduced opacity, so overlapping parts of one stroke do not stack up.
+    cairo_push_group(ctx.cr);
+    ElementView::createFromElement(e)->draw(ctx);
+    cairo_pop_group_to_source(ctx.cr);
+    cairo_paint_with_alpha(ctx.cr, OPACITY_EDITOR_ONLY);
 }

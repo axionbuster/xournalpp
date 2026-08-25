@@ -205,6 +205,11 @@ struct ActionProperties<Action::DELETE> {
 };
 
 template <>
+struct ActionProperties<Action::SELECTION_EDITOR_ONLY> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->toggleSelectionEditorOnly(); }
+};
+
+template <>
 struct ActionProperties<Action::ARRANGE_SELECTION_ORDER> {
     using parameter_type = EditSelection::OrderChange;
     static void callback(GSimpleAction*, GVariant* p, Control* ctrl) {

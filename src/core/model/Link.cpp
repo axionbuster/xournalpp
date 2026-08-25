@@ -95,6 +95,7 @@ ElementPtr Link::clone() const {
     link->text = this->text;
     link->url = this->url;
     link->setColor(this->getColor());
+    link->setEditorOnly(this->isEditorOnly());
     link->boundingBox = this->boundingBox;
     link->snappedBounds = this->snappedBounds;
     link->sizeCalculated = this->sizeCalculated;

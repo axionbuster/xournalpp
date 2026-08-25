@@ -454,6 +454,8 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("PLAY_OBJECT", Cat::SELECTION, Action::SELECT_TOOL, TOOL_PLAY_OBJECT, "object-play",
                                 _("Play Object"));
     emplaceCustomItemWithTarget("HAND", Cat::SELECTION, Action::SELECT_TOOL, TOOL_HAND, "hand", _("Hand"));
+    emplaceCustomItem("EDITOR_ONLY", Cat::SELECTION, Action::SELECTION_EDITOR_ONLY, "editor-only",
+                      _("Hide in Output (editing aid, left out of recordings and exports)"));
 
     emplaceItem<FontButton>("SELECT_FONT", *control->getActionDatabase());
     emplaceCustomItem("FONT_PRESET_1", Cat::TOOLS, Action::FONT_PRESET_1, "font-preset-1", _("Font preset 1"));

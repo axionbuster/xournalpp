@@ -94,6 +94,9 @@ void Stroke::applyStyleFrom(const Stroke* other) {
     setFill(other->getFill());
     setStrokeCapStyle(other->getStrokeCapStyle());
     setLineStyle(other->getLineStyle());
+    // Editor-only travels with the style so that the pieces an eraser or the shape recognizer
+    // makes out of a hidden stroke stay hidden.
+    setEditorOnly(other->isEditorOnly());
 
     cloneAudioData(other);
 }

@@ -235,6 +235,7 @@ void ImageExport::exportGraphics(ProgressListener* stateListener) {
     }
 
     DocumentView view;
+    view.setHideEditorOnlyElements(true);
     size_t current = 0;
 
     for (size_t i = 0; i < count; i++) {

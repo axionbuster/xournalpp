@@ -45,6 +45,8 @@ void renderPageContent(Control* control, const PageRef& page, cairo_t* cr) {
 
     DocumentView documentView;
     documentView.setMarkAudioStroke(false);
+    // The recording and the projector are for the audience: editor-only elements stay out.
+    documentView.setHideEditorOnlyElements(true);
     if (xournal != nullptr) {
         // Without this a PDF background renders as blank white. The cache is shared with the main
         // view rather than duplicated: it guards itself with its own mutex, and a second copy would

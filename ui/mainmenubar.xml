@@ -145,6 +145,10 @@
      <attribute name="label" translatable="yes">Move Selection Layer Down</attribute>
      <attribute name="action">win.move-selection-layer-down</attribute>
     </item>
+    <item>
+     <attribute name="label" translatable="yes">Hide Selection in Output</attribute>
+     <attribute name="action">win.selection-editor-only</attribute>
+    </item>
    </section>
    <section>
     <item>

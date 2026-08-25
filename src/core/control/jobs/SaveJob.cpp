@@ -89,6 +89,7 @@ void SaveJob::updatePreview(Control* control) {
         }
 
         DocumentView view;
+        view.setHideEditorOnlyElements(true);
         view.drawPage(page, cr, true /* don't render erasable */, flags);
         cairo_destroy(cr);
     }

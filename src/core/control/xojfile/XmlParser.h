@@ -81,6 +81,12 @@ private:
     void parseAttachmentTag(const XmlParserHelper::AttributeMap& attributeMap);
 
     /**
+     * Forward the editor-only flag of the element just added to the builder
+     * (fork-only; see the comment on EDITOR_ONLY_STR in XmlAttrs.h)
+     */
+    void parseEditorOnlyAttr(const XmlParserHelper::AttributeMap& attributeMap);
+
+    /**
      * Get the tag type from a given element name
      *
      * This function returns the corresponding tag type if it is expected under

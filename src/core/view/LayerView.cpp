@@ -39,7 +39,7 @@ void LayerView::draw(const Context& ctx) const {
         });
 
         if (e->intersectsArea(minX, minY, maxX - minX, maxY - minY)) {
-            ElementView::createFromElement(e)->draw(ctx);
+            drawElement(e, ctx);
             IF_DEBUG_REPAINT(drawn++;);
         }
         IF_DEBUG_REPAINT(else { notDrawn++; });

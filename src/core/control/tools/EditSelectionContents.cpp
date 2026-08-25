@@ -22,6 +22,7 @@
 #include "model/XojPage.h"                        // for XojPage
 #include "undo/ColorUndoAction.h"                 // for ColorUndoAction
 #include "undo/DeleteUndoAction.h"                // for DeleteUndoAction
+#include "undo/EditorOnlyUndoAction.h"            // for EditorOnlyUndoAction
 #include "undo/FillUndoAction.h"                  // for FillUndoAction
 #include "undo/FontUndoAction.h"                  // for FontUndoAction
 #include "undo/InsertUndoAction.h"                // for InsertsUndoAction
@@ -282,6 +283,35 @@ auto EditSelectionContents::setColor(Color color) -> UndoActionPtr {
     }
 
     return nullptr;
+}
+
+/**
+ * Toggle the editor-only flag of all elements, return an undo action
+ * (or nullptr if the selection is empty)
+ */
+auto EditSelectionContents::toggleEditorOnly() -> UndoActionPtr {
+    if (this->selected.empty()) {
+        return nullptr;
+    }
+
+    // If anything is still visible in output, the toggle hides everything; only a selection
+    // that is already entirely editor-only is brought back.
+    const bool newState =
+            std::any_of(this->selected.begin(), this->selected.end(), [](Element* e) { return !e->isEditorOnly(); });
+
+    auto undo = std::make_unique<EditorOnlyUndoAction>(this->sourcePage, this->sourceLayer, newState);
+
+    for (Element* e: this->selected) {
+        if (e->isEditorOnly() != newState) {
+            undo->addElement(e, e->isEditorOnly());
+            e->setEditorOnly(newState);
+        }
+    }
+
+    this->deleteViewBuffer();
+    this->sourceView->getXournal()->repaintSelection();
+
+    return undo;
 }
 
 /**
@@ -550,7 +580,9 @@ void EditSelectionContents::paintContentsForFrame(cairo_t* cr, double x, double 
     const Rectangle<double> sourceBounds{this->relativeX, this->relativeY, this->originalBounds.width,
                                          this->originalBounds.height};
     const Rectangle<double> targetBounds{x, y, width, height};
-    xoj::view::ElementContainerView(this).drawTransformed(cr, sourceBounds, targetBounds);
+    // Recorded / projected frames: selected editor-only elements stay out of the picture too.
+    xoj::view::ElementContainerView(this).drawTransformed(cr, sourceBounds, targetBounds,
+                                                          xoj::view::HIDE_EDITOR_ONLY);
 }
 
 void EditSelectionContents::serialize(ObjectOutputStream& out) const {

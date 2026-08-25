@@ -417,6 +417,12 @@ auto EditSelection::setLineStyle(LineStyle style) -> UndoActionPtr { return this
 auto EditSelection::setColor(Color color) -> UndoActionPtr { return this->contents->setColor(color); }
 
 /**
+ * Toggle the editor-only flag of all elements, return an undo action
+ * (or nullptr if the selection is empty)
+ */
+auto EditSelection::toggleEditorOnly() -> UndoActionPtr { return this->contents->toggleEditorOnly(); }
+
+/**
  * Sets the color of all containing text elements, return an undo action
  * (or nullptr if there are no Text elements)
  */

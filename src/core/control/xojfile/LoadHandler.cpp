@@ -506,6 +506,24 @@ void LoadHandler::finalizeLink() {
     this->layer->addElement(std::move(this->link));
 }
 
+void LoadHandler::setElementEditorOnly() {
+    // Elements are built one at a time, so exactly one of these is live when the parser
+    // reports the attribute.
+    if (this->stroke) {
+        this->stroke->setEditorOnly(true);
+    } else if (this->text) {
+        this->text->setEditorOnly(true);
+    } else if (this->image) {
+        this->image->setEditorOnly(true);
+    } else if (this->teximage) {
+        this->teximage->setEditorOnly(true);
+    } else if (this->link) {
+        this->link->setEditorOnly(true);
+    } else {
+        xoj_assert_message(false, "setElementEditorOnly() called with no element being built");
+    }
+}
+
 
 void LoadHandler::logError(const std::string& error) {
     g_warning("LoadHandler: %s", error.c_str());

@@ -34,6 +34,7 @@ auto Text::cloneText() const -> std::unique_ptr<Text> {
     text->text = this->text;
     text->styleRuns = this->styleRuns;
     text->setColor(this->getColor());
+    text->setEditorOnly(this->isEditorOnly());
     text->boundingBox = this->boundingBox;
     text->cloneAudioData(this);
     text->snappedBounds = this->snappedBounds;

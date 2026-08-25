@@ -597,6 +597,17 @@ void Control::reorderSelection(EditSelection::OrderChange change) {
     this->undoRedo->addUndoAction(std::move(undoAction));
 }
 
+void Control::toggleSelectionEditorOnly() {
+    EditSelection* sel = win->getXournal()->getSelection();
+    if (!sel) {
+        return;
+    }
+
+    if (auto undoAction = sel->toggleEditorOnly()) {
+        this->undoRedo->addUndoAction(std::move(undoAction));
+    }
+}
+
 /**
  * Fire page selected, but first check if the page Number is valid
  *
