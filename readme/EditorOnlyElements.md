@@ -30,8 +30,8 @@ The **Hide in Output** action toggles the flag on the current selection:
 
 Select any mix of elements and trigger the action once: if anything in the selection is still
 visible in output, everything becomes editor-only; a selection that is already entirely
-editor-only is brought back. The change is one undo step. Without a selection the action does
-nothing.
+editor-only is brought back. The change is one undo step. The button and the menu item are
+disabled (grayed out) while nothing is selected.
 
 ## File format
 

@@ -206,6 +206,9 @@ struct ActionProperties<Action::DELETE> {
 
 template <>
 struct ActionProperties<Action::SELECTION_EDITOR_ONLY> {
+    // Enabled exactly while a selection exists; Control::setClipboardHandlerSelection()
+    // flips it on every selection change, and no selection can exist at startup.
+    static constexpr bool initiallyEnabled(Control*) { return false; }
     static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->toggleSelectionEditorOnly(); }
 };
 

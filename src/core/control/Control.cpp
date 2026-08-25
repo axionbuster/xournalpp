@@ -2622,6 +2622,11 @@ void Control::setClipboardHandlerSelection(EditSelection* selection) {
     if (this->clipboardHandler) {
         this->clipboardHandler->setSelection(selection);
     }
+    // The editor-only toggle acts on the selection and nothing else, so it is enabled
+    // exactly while one exists.
+    if (this->actionDB) {
+        this->actionDB->enableAction(Action::SELECTION_EDITOR_ONLY, selection != nullptr);
+    }
 }
 
 void Control::addChangedDocumentListener(DocumentListener* dl) { this->changedDocumentListeners.push_back(dl); }
